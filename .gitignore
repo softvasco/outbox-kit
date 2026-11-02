@@ -1,0 +1,10 @@
+bin/
+obj/
+.vs/
+*.user
+TestResults/
+coverage/
+target/
+.venv/
+__pycache__/
+.env

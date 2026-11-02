@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Transactional outbox and inbox for .NET: messages saved in the same transaction as your data, delivered at least once, handled once.</Description>
+    <PackageTags>outbox;inbox;transactional-outbox;messaging;efcore;sqlserver;postgresql</PackageTags>
+  </PropertyGroup>
+</Project>
