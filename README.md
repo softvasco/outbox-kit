@@ -5,7 +5,7 @@
 
 Transactional outbox and inbox for .NET. A message is saved in the same database transaction as the data that caused it, a relay delivers it at least once, and the consumer side makes sure it is handled once.
 
-Early days: the repo has the skeleton and the plan, the code comes next. Everything below describes where it is going, not what works today.
+Early days: messages can be saved with the caller's transaction (ADO.NET or EF Core). There is no relay yet, so nothing gets published.
 
 ## Why
 
@@ -31,6 +31,29 @@ flowchart LR
         work --> cdb[(consumer tables<br/>+ inbox)]
     end
 ```
+
+## Saving a message
+
+With ADO.NET, pass the transaction you already have. The row is written on its connection, so it commits or rolls back with your own writes:
+
+```csharp
+await using var transaction = await connection.BeginTransactionAsync(ct);
+// ... insert the order with the same transaction
+await outbox.EnqueueAsync(new OrderPlaced(order.Id), transaction, orderingKey: $"order-{order.Id}", ct);
+await transaction.CommitAsync(ct);
+```
+
+With EF Core, map the table once and enqueue on the context. The message is only tracked; the next `SaveChanges` writes it together with your entities:
+
+```csharp
+protected override void OnModelCreating(ModelBuilder modelBuilder) => modelBuilder.AddOutboxMessages();
+
+db.Orders.Add(order);
+dbContextOutbox.Enqueue(db, new OrderPlaced(order.Id));
+await db.SaveChangesAsync(ct);
+```
+
+Both write the same table and columns (`outbox_messages` by default), so one service can use either.
 
 ## Plan
 

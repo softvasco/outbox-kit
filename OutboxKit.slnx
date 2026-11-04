@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/OutboxKit/OutboxKit.csproj" />
+    <Project Path="src/OutboxKit.EntityFrameworkCore/OutboxKit.EntityFrameworkCore.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/OutboxKit.Tests/OutboxKit.Tests.csproj" />
