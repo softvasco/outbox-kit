@@ -7,6 +7,8 @@ public sealed class OutboxDispatcherOptions
 
     public int BatchSize { get; set; } = 100;
 
+    internal bool IsValid => PollingInterval > TimeSpan.Zero && BatchSize >= 1;
+
     internal void Validate()
     {
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(PollingInterval, TimeSpan.Zero, nameof(PollingInterval));
