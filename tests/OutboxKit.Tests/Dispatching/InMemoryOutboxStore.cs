@@ -8,6 +8,9 @@ internal sealed class InMemoryOutboxStore : IOutboxStore
 
     public int? LastBatchSize { get; private set; }
 
+    // released once per GetPendingAsync, so a test can wait for the background service to poll
+    public SemaphoreSlim Polls { get; } = new(0);
+
     public IReadOnlyList<Guid> PendingIds => [.. _pending.Select(m => m.Id)];
 
     public OutboxMessage Add(string type = "orders.placed", string? orderingKey = null)
@@ -20,7 +23,9 @@ internal sealed class InMemoryOutboxStore : IOutboxStore
     public Task<IReadOnlyList<OutboxMessage>> GetPendingAsync(int batchSize, CancellationToken cancellationToken)
     {
         LastBatchSize = batchSize;
-        return Task.FromResult<IReadOnlyList<OutboxMessage>>([.. _pending.Take(batchSize)]);
+        IReadOnlyList<OutboxMessage> batch = [.. _pending.Take(batchSize)];
+        Polls.Release();
+        return Task.FromResult(batch);
     }
 
     public Task MarkDispatchedAsync(OutboxMessage message, DateTimeOffset dispatchedAt, CancellationToken cancellationToken)
