@@ -5,7 +5,7 @@
 
 Transactional outbox and inbox for .NET. A message is saved in the same database transaction as the data that caused it, a relay delivers it at least once, and the consumer side makes sure it is handled once.
 
-Early days: messages can be saved with the caller's transaction (ADO.NET or EF Core). There is no relay yet, so nothing gets published.
+Early days: messages can be saved with the caller's transaction (ADO.NET or EF Core), and a hosted dispatcher sends them through a transport you plug in. The stores that read the table safely from several instances come next, so nothing ships ready to publish yet.
 
 ## Why
 
@@ -54,6 +54,22 @@ await db.SaveChangesAsync(ct);
 ```
 
 Both write the same table and columns (`outbox_messages` by default), so one service can use either.
+
+## Sending messages
+
+The dispatcher runs as a hosted service. It reads a batch of pending messages from an `IOutboxStore`, hands each one to your `IMessageTransport` in order, and marks it dispatched after the send succeeds:
+
+```csharp
+builder.Services.AddSingleton<IOutboxStore>(store);
+builder.Services.AddSingleton<IMessageTransport, ServiceBusTransport>();
+builder.Services.AddOutboxDispatcher(o =>
+{
+    o.PollingInterval = TimeSpan.FromSeconds(1);
+    o.BatchSize = 100;
+});
+```
+
+A full batch is followed by the next one straight away; it only waits for the polling interval once the outbox is drained. A failed send stops the batch, so later messages for the same key don't overtake it, and the service logs the error and tries again on the next poll. A crash between the send and the update sends that message again, which is why the consumer side needs an inbox.
 
 ## Plan
 
