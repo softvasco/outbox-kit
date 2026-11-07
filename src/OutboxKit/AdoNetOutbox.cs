@@ -34,21 +34,13 @@ public sealed class AdoNetOutbox : IOutbox
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = _insert;
-        Add(command, "@id", outboxMessage.Id);
-        Add(command, "@type", outboxMessage.Type);
-        Add(command, "@payload", outboxMessage.Payload);
-        Add(command, "@created_at", outboxMessage.CreatedAt);
-        Add(command, "@ordering_key", outboxMessage.OrderingKey);
+        command.Add("@id", outboxMessage.Id);
+        command.Add("@type", outboxMessage.Type);
+        command.Add("@payload", outboxMessage.Payload);
+        command.Add("@created_at", outboxMessage.CreatedAt);
+        command.Add("@ordering_key", outboxMessage.OrderingKey);
 
         await command.ExecuteNonQueryAsync(cancellationToken);
         return outboxMessage;
-    }
-
-    private static void Add(DbCommand command, string name, object? value)
-    {
-        var parameter = command.CreateParameter();
-        parameter.ParameterName = name;
-        parameter.Value = value ?? DBNull.Value;
-        command.Parameters.Add(parameter);
     }
 }
