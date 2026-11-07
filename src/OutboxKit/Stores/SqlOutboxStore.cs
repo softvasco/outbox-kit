@@ -27,6 +27,14 @@ public abstract class SqlOutboxStore : IOutboxStore
             + "claimed_until = NULL, last_error = @error WHERE id = @id";
     }
 
+    // claimed or not, an older pending message holds its key, so two relays never share one
+    private protected static string EarlierPendingForKey(string table) => $"""
+        SELECT 1 FROM {table} earlier
+                    WHERE earlier.ordering_key = m.ordering_key
+                        AND earlier.dispatched_at IS NULL AND earlier.dead_lettered_at IS NULL
+                        AND (earlier.created_at < m.created_at OR (earlier.created_at = m.created_at AND earlier.id < m.id))
+        """;
+
     public async Task<IReadOnlyList<OutboxMessage>> ClaimAsync(
         int batchSize, DateTimeOffset now, DateTimeOffset claimedUntil, CancellationToken cancellationToken)
     {

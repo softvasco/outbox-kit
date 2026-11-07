@@ -96,6 +96,98 @@ public abstract class OutboxStoreContract : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Only_the_oldest_pending_message_for_each_key_is_claimed()
+    {
+        var firstA = await Insert(Now.AddMinutes(-4), "a");
+        await Insert(Now.AddMinutes(-3), "a");
+        var firstB = await Insert(Now.AddMinutes(-2), "b");
+        var noKey = await Insert(Now.AddMinutes(-1));
+        var otherNoKey = await Insert(Now);
+
+        var batch = await _store.ClaimAsync(10, Now, Now + Claim, Token);
+
+        Assert.Equal([firstA, firstB, noKey, otherNoKey], batch.Select(m => m.Id));
+    }
+
+    [Fact]
+    public async Task The_next_message_for_a_key_waits_until_the_one_before_is_dispatched()
+    {
+        await Insert(Now.AddMinutes(-2), "a");
+        var second = await Insert(Now.AddMinutes(-1), "a");
+        var first = Assert.Single(await _store.ClaimAsync(10, Now, Now + Claim, Token));
+
+        var whileFirstIsOut = await _store.ClaimAsync(10, Now + Claim, Now + (Claim * 2), Token);
+        await _store.MarkDispatchedAsync(first, Now, Token);
+        var afterwards = await _store.ClaimAsync(10, Now, Now + Claim, Token);
+
+        Assert.Equal([first.Id], whileFirstIsOut.Select(m => m.Id));
+        Assert.Equal([second], afterwards.Select(m => m.Id));
+    }
+
+    [Fact]
+    public async Task A_message_waiting_to_retry_holds_back_its_key_but_no_other()
+    {
+        await Insert(Now.AddMinutes(-3), "a");
+        await Insert(Now.AddMinutes(-2), "a");
+        var otherKey = await Insert(Now.AddMinutes(-1), "b");
+        var failed = (await _store.ClaimAsync(1, Now, Now + Claim, Token))[0];
+
+        await _store.MarkFailedAsync(failed, Now.AddMinutes(5), "broker unavailable", Token);
+
+        Assert.Equal([otherKey], (await _store.ClaimAsync(10, Now, Now + Claim, Token)).Select(m => m.Id));
+    }
+
+    [Fact]
+    public async Task A_dead_letter_stops_holding_back_its_key()
+    {
+        await Insert(Now.AddMinutes(-2), "a");
+        var second = await Insert(Now.AddMinutes(-1), "a");
+        var parked = Assert.Single(await _store.ClaimAsync(10, Now, Now + Claim, Token));
+
+        await _store.MarkDeadLetteredAsync(parked, Now, "payload rejected", Token);
+
+        Assert.Equal([second], (await _store.ClaimAsync(10, Now, Now + Claim, Token)).Select(m => m.Id));
+    }
+
+    [Fact]
+    public async Task Relays_working_at_the_same_time_send_each_key_in_order()
+    {
+        const int Keys = 6;
+        const int PerKey = 20;
+        var expected = new Dictionary<string, List<Guid>>();
+        for (var i = 0; i < PerKey; i++)
+        {
+            for (var k = 0; k < Keys; k++)
+            {
+                var key = $"key-{k}";
+                var id = await Insert(Now.AddMinutes(-PerKey).AddSeconds(i).AddMilliseconds(k), key);
+                (expected.TryGetValue(key, out var ids) ? ids : expected[key] = []).Add(id);
+            }
+        }
+
+        var sent = new ConcurrentQueue<OutboxMessage>();
+        var relays = Enumerable.Range(0, 4).Select(_ => Task.Run(async () =>
+        {
+            IReadOnlyList<OutboxMessage> batch;
+            while ((batch = await _store.ClaimAsync(3, Now, Now + Claim, Token)).Count > 0)
+            {
+                foreach (var message in batch)
+                {
+                    sent.Enqueue(message);
+                    await _store.MarkDispatchedAsync(message, Now, Token);
+                }
+            }
+        }));
+        await Task.WhenAll(relays);
+
+        Assert.Equal(Keys * PerKey, sent.Count);
+        foreach (var (key, ids) in expected)
+        {
+            Assert.Equal(ids, sent.Where(m => m.OrderingKey == key).Select(m => m.Id));
+        }
+    }
+
+    [Fact]
     public async Task The_message_comes_back_as_it_was_saved()
     {
         var saved = new OutboxMessage(Guid.CreateVersion7(), "orders.placed", """{"id":42}""", Now, "order-42");
@@ -157,9 +249,9 @@ public abstract class OutboxStoreContract : IAsyncLifetime
 
     protected abstract string CreateTableSql(string table);
 
-    private async Task<Guid> Insert(DateTimeOffset createdAt)
+    private async Task<Guid> Insert(DateTimeOffset createdAt, string? orderingKey = null)
     {
-        var message = new OutboxMessage(Guid.CreateVersion7(), "orders.placed", "{}", createdAt);
+        var message = new OutboxMessage(Guid.CreateVersion7(), "orders.placed", "{}", createdAt, orderingKey);
         await Insert(message);
         return message.Id;
     }
