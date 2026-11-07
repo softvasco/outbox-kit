@@ -9,8 +9,9 @@ public sealed class PostgreSqlOutboxStore(DbDataSource dataSource, OutboxTable t
     private static string ClaimSql(string table) => $"""
         UPDATE {table} SET claimed_until = @claimed_until
         WHERE id IN (
-            SELECT id FROM {table}
+            SELECT id FROM {table} m
             WHERE dispatched_at IS NULL AND dead_lettered_at IS NULL AND (claimed_until IS NULL OR claimed_until <= @now)
+                AND NOT EXISTS ({SqlOutboxStore.EarlierPendingForKey(table)})
             ORDER BY created_at, id
             LIMIT @batch_size
             FOR UPDATE SKIP LOCKED)
