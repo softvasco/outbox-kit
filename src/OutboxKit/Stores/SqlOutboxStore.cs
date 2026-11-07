@@ -9,13 +9,14 @@ public abstract class SqlOutboxStore : IOutboxStore
     private readonly string _claim;
     private readonly string _markDispatched;
 
-    protected SqlOutboxStore(DbDataSource dataSource, OutboxTable table)
+    // claimSql builds one statement that sets claimed_until on the batch and returns its rows
+    private protected SqlOutboxStore(DbDataSource dataSource, OutboxTable table, Func<string, string> claimSql)
     {
         ArgumentNullException.ThrowIfNull(dataSource);
         ArgumentNullException.ThrowIfNull(table);
 
         _dataSource = dataSource;
-        _claim = ClaimSql(table.Name);
+        _claim = claimSql(table.Name);
         _markDispatched = $"UPDATE {table.Name} SET dispatched_at = @dispatched_at, claimed_until = NULL WHERE id = @id";
     }
 
@@ -54,7 +55,4 @@ public abstract class SqlOutboxStore : IOutboxStore
         command.Add("@id", message.Id);
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
-
-    /// <summary>One statement that sets claimed_until on the batch and returns id, type, payload, created_at, ordering_key.</summary>
-    protected abstract string ClaimSql(string table);
 }

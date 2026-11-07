@@ -3,10 +3,10 @@ using System.Data.Common;
 namespace OutboxKit.Stores;
 
 /// <summary>Claims batches on SQL Server. Pass <c>SqlClientFactory.Instance.CreateDataSource(connectionString)</c>.</summary>
-public sealed class SqlServerOutboxStore(DbDataSource dataSource, OutboxTable table) : SqlOutboxStore(dataSource, table)
+public sealed class SqlServerOutboxStore(DbDataSource dataSource, OutboxTable table) : SqlOutboxStore(dataSource, table, ClaimSql)
 {
     // UPDLOCK holds what it reads, READPAST skips rows another relay holds, ROWLOCK avoids page locks
-    protected override string ClaimSql(string table) => $"""
+    private static string ClaimSql(string table) => $"""
         WITH batch AS (
             SELECT TOP (@batch_size) id, type, payload, created_at, ordering_key, claimed_until
             FROM {table} WITH (UPDLOCK, READPAST, ROWLOCK)

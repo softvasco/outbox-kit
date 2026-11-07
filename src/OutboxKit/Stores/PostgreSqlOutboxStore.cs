@@ -3,10 +3,10 @@ using System.Data.Common;
 namespace OutboxKit.Stores;
 
 /// <summary>Claims batches on PostgreSQL. Pass an NpgsqlDataSource.</summary>
-public sealed class PostgreSqlOutboxStore(DbDataSource dataSource, OutboxTable table) : SqlOutboxStore(dataSource, table)
+public sealed class PostgreSqlOutboxStore(DbDataSource dataSource, OutboxTable table) : SqlOutboxStore(dataSource, table, ClaimSql)
 {
     // without SKIP LOCKED two relays polling at once pick the same ids, or queue behind each other
-    protected override string ClaimSql(string table) => $"""
+    private static string ClaimSql(string table) => $"""
         UPDATE {table} SET claimed_until = @claimed_until
         WHERE id IN (
             SELECT id FROM {table}
