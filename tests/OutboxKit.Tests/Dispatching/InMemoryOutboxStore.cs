@@ -3,12 +3,13 @@ namespace OutboxKit.Tests.Dispatching;
 internal sealed class InMemoryOutboxStore : IOutboxStore
 {
     private readonly List<OutboxMessage> _pending = [];
+    private readonly Dictionary<Guid, DateTimeOffset> _claimedUntil = [];
 
     public List<(Guid Id, DateTimeOffset At)> Dispatched { get; } = [];
 
     public int? LastBatchSize { get; private set; }
 
-    // released once per GetPendingAsync, so a test can wait for the background service to poll
+    // released once per ClaimAsync, so a test can wait for the background service to poll
     public SemaphoreSlim Polls { get; } = new(0);
 
     public IReadOnlyList<Guid> PendingIds => [.. _pending.Select(m => m.Id)];
@@ -20,10 +21,20 @@ internal sealed class InMemoryOutboxStore : IOutboxStore
         return message;
     }
 
-    public Task<IReadOnlyList<OutboxMessage>> GetPendingAsync(int batchSize, CancellationToken cancellationToken)
+    public DateTimeOffset? ClaimedUntil(OutboxMessage message) =>
+        _claimedUntil.TryGetValue(message.Id, out var until) ? until : null;
+
+    public Task<IReadOnlyList<OutboxMessage>> ClaimAsync(
+        int batchSize, DateTimeOffset now, DateTimeOffset claimedUntil, CancellationToken cancellationToken)
     {
         LastBatchSize = batchSize;
-        IReadOnlyList<OutboxMessage> batch = [.. _pending.Take(batchSize)];
+        IReadOnlyList<OutboxMessage> batch =
+            [.. _pending.Where(m => !_claimedUntil.TryGetValue(m.Id, out var until) || until <= now).Take(batchSize)];
+        foreach (var message in batch)
+        {
+            _claimedUntil[message.Id] = claimedUntil;
+        }
+
         Polls.Release();
         return Task.FromResult(batch);
     }
@@ -31,6 +42,7 @@ internal sealed class InMemoryOutboxStore : IOutboxStore
     public Task MarkDispatchedAsync(OutboxMessage message, DateTimeOffset dispatchedAt, CancellationToken cancellationToken)
     {
         _pending.Remove(message);
+        _claimedUntil.Remove(message.Id);
         Dispatched.Add((message.Id, dispatchedAt));
         return Task.CompletedTask;
     }

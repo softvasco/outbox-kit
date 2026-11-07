@@ -53,19 +53,19 @@ public sealed class OutboxDispatcherServiceTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task A_failed_batch_is_logged_and_retried_on_the_next_poll()
+    public async Task A_failed_batch_is_logged_and_retried_once_its_claim_runs_out()
     {
         var message = _store.Add();
         _transport.FailOn(message, times: 1);
-        await Start(batchSize: 10);
+        await Start(batchSize: 10, claim: Interval * 3);
         await NextPoll();
 
-        await AdvanceUntilNextPoll();
+        var waited = await AdvanceUntilSent(message);
         await _service!.StopAsync(Token);
 
         var error = Assert.Single(_logger.Collector.GetSnapshot(), r => r.Level == LogLevel.Error);
         Assert.IsType<HttpRequestException>(error.Exception);
-        Assert.Equal([message.Id], _transport.Sent);
+        Assert.True(waited >= Interval * 3, $"sent again after {waited}");
         Assert.Empty(_store.PendingIds);
     }
 
@@ -91,9 +91,14 @@ public sealed class OutboxDispatcherServiceTests : IAsyncDisposable
         Assert.Throws<ArgumentOutOfRangeException>(() => Create(options));
     }
 
-    private async Task Start(int batchSize)
+    private async Task Start(int batchSize, TimeSpan? claim = null)
     {
-        _service = Create(new OutboxDispatcherOptions { PollingInterval = Interval, BatchSize = batchSize });
+        _service = Create(new OutboxDispatcherOptions
+        {
+            PollingInterval = Interval,
+            BatchSize = batchSize,
+            ClaimDuration = claim ?? Interval,
+        });
         await _service.StartAsync(Token);
     }
 
@@ -103,6 +108,17 @@ public sealed class OutboxDispatcherServiceTests : IAsyncDisposable
     private async Task NextPoll()
     {
         Assert.True(await _store.Polls.WaitAsync(TimeSpan.FromSeconds(10), Token), "the service didn't poll");
+    }
+
+    private async Task<TimeSpan> AdvanceUntilSent(OutboxMessage message)
+    {
+        var started = _time.GetUtcNow();
+        while (!_transport.Sent.Contains(message.Id))
+        {
+            await AdvanceUntilNextPoll();
+        }
+
+        return _time.GetUtcNow() - started;
     }
 
     // the service may not have started its delay yet when time moves, so keep nudging the clock until it polls
