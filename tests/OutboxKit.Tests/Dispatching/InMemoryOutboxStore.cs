@@ -7,6 +7,10 @@ internal sealed class InMemoryOutboxStore : IOutboxStore
 
     public List<(Guid Id, DateTimeOffset At)> Dispatched { get; } = [];
 
+    public List<(Guid Id, DateTimeOffset RetryAt, string Reason)> Failed { get; } = [];
+
+    public List<(Guid Id, DateTimeOffset At, string Reason)> DeadLettered { get; } = [];
+
     public int? LastBatchSize { get; private set; }
 
     // released once per ClaimAsync, so a test can wait for the background service to poll
@@ -14,9 +18,9 @@ internal sealed class InMemoryOutboxStore : IOutboxStore
 
     public IReadOnlyList<Guid> PendingIds => [.. _pending.Select(m => m.Id)];
 
-    public OutboxMessage Add(string type = "orders.placed", string? orderingKey = null)
+    public OutboxMessage Add(string type = "orders.placed", string? orderingKey = null, int attempts = 0)
     {
-        var message = new OutboxMessage(Guid.CreateVersion7(), type, "{}", DateTimeOffset.UnixEpoch, orderingKey);
+        var message = new OutboxMessage(Guid.CreateVersion7(), type, "{}", DateTimeOffset.UnixEpoch, orderingKey, attempts);
         _pending.Add(message);
         return message;
     }
@@ -41,9 +45,32 @@ internal sealed class InMemoryOutboxStore : IOutboxStore
 
     public Task MarkDispatchedAsync(OutboxMessage message, DateTimeOffset dispatchedAt, CancellationToken cancellationToken)
     {
-        _pending.Remove(message);
-        _claimedUntil.Remove(message.Id);
+        Remove(message);
         Dispatched.Add((message.Id, dispatchedAt));
         return Task.CompletedTask;
+    }
+
+    public Task MarkFailedAsync(OutboxMessage message, DateTimeOffset retryAt, string reason, CancellationToken cancellationToken)
+    {
+        var index = _pending.FindIndex(m => m.Id == message.Id);
+        _pending[index] = new OutboxMessage(
+            message.Id, message.Type, message.Payload, message.CreatedAt, message.OrderingKey, message.Attempts + 1);
+        _claimedUntil[message.Id] = retryAt;
+        Failed.Add((message.Id, retryAt, reason));
+        return Task.CompletedTask;
+    }
+
+    public Task MarkDeadLetteredAsync(
+        OutboxMessage message, DateTimeOffset deadLetteredAt, string reason, CancellationToken cancellationToken)
+    {
+        Remove(message);
+        DeadLettered.Add((message.Id, deadLetteredAt, reason));
+        return Task.CompletedTask;
+    }
+
+    private void Remove(OutboxMessage message)
+    {
+        _pending.RemoveAll(m => m.Id == message.Id);
+        _claimedUntil.Remove(message.Id);
     }
 }

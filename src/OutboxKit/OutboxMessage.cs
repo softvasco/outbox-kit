@@ -6,7 +6,7 @@ public sealed class OutboxMessage
     public const int MaxTypeLength = 256;
     public const int MaxOrderingKeyLength = 256;
 
-    public OutboxMessage(Guid id, string type, string payload, DateTimeOffset createdAt, string? orderingKey = null)
+    public OutboxMessage(Guid id, string type, string payload, DateTimeOffset createdAt, string? orderingKey = null, int attempts = 0)
     {
         if (id == Guid.Empty)
         {
@@ -23,11 +23,14 @@ public sealed class OutboxMessage
             ArgumentOutOfRangeException.ThrowIfGreaterThan(orderingKey.Length, MaxOrderingKeyLength, nameof(orderingKey));
         }
 
+        ArgumentOutOfRangeException.ThrowIfNegative(attempts);
+
         Id = id;
         Type = type;
         Payload = payload;
         CreatedAt = createdAt;
         OrderingKey = orderingKey;
+        Attempts = attempts;
     }
 
     public Guid Id { get; }
@@ -41,4 +44,7 @@ public sealed class OutboxMessage
 
     /// <summary>Messages with the same key are delivered in the order they were saved. Null means no ordering.</summary>
     public string? OrderingKey { get; }
+
+    /// <summary>How many sends of this message have failed so far.</summary>
+    public int Attempts { get; }
 }

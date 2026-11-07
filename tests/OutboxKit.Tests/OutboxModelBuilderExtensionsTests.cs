@@ -14,7 +14,7 @@ public sealed class OutboxModelBuilderExtensionsTests
         Assert.Equal(OutboxTable.DefaultName, entity.GetTableName());
         Assert.Null(entity.GetSchema());
         Assert.Equal(
-            ["claimed_until", "created_at", "dispatched_at", "id", "ordering_key", "payload", "type"],
+            ["attempts", "claimed_until", "created_at", "dead_lettered_at", "dispatched_at", "id", "last_error", "ordering_key", "payload", "type"],
             entity.GetProperties().Select(p => p.GetColumnName()).Order());
     }
 
@@ -24,7 +24,7 @@ public sealed class OutboxModelBuilderExtensionsTests
         var entity = Map(table: null);
 
         Assert.All(
-            ["ClaimedUntil", "DispatchedAt"],
+            ["ClaimedUntil", "DispatchedAt", "DeadLetteredAt", "LastError"],
             name => Assert.True(entity.FindProperty(name) is { IsNullable: true } property && property.IsShadowProperty(), name));
     }
 

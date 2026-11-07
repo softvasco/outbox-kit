@@ -51,6 +51,9 @@ public sealed class SqlServerOutboxStoreTests(SqlServer server) : OutboxStoreCon
             created_at datetimeoffset NOT NULL,
             ordering_key nvarchar(256),
             claimed_until datetimeoffset,
-            dispatched_at datetimeoffset)
+            dispatched_at datetimeoffset,
+            attempts int NOT NULL DEFAULT 0,
+            dead_lettered_at datetimeoffset,
+            last_error nvarchar(max))
         """;
 }

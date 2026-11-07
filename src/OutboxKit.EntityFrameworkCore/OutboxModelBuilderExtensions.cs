@@ -21,10 +21,13 @@ public static class OutboxModelBuilderExtensions
             message.Property(m => m.Payload).HasColumnName("payload").IsRequired();
             message.Property(m => m.CreatedAt).HasColumnName("created_at");
             message.Property(m => m.OrderingKey).HasColumnName("ordering_key").HasMaxLength(OutboxMessage.MaxOrderingKeyLength);
+            message.Property(m => m.Attempts).HasColumnName("attempts").HasDefaultValue(0);
 
             // only the stores read these, but a migration from this model has to create them
             message.Property<DateTimeOffset?>("ClaimedUntil").HasColumnName("claimed_until");
             message.Property<DateTimeOffset?>("DispatchedAt").HasColumnName("dispatched_at");
+            message.Property<DateTimeOffset?>("DeadLetteredAt").HasColumnName("dead_lettered_at");
+            message.Property<string?>("LastError").HasColumnName("last_error");
         });
 
         return modelBuilder;

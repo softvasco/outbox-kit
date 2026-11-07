@@ -8,6 +8,8 @@ public abstract class SqlOutboxStore : IOutboxStore
     private readonly DbDataSource _dataSource;
     private readonly string _claim;
     private readonly string _markDispatched;
+    private readonly string _markFailed;
+    private readonly string _markDeadLettered;
 
     // claimSql builds one statement that sets claimed_until on the batch and returns its rows
     private protected SqlOutboxStore(DbDataSource dataSource, OutboxTable table, Func<string, string> claimSql)
@@ -18,6 +20,11 @@ public abstract class SqlOutboxStore : IOutboxStore
         _dataSource = dataSource;
         _claim = claimSql(table.Name);
         _markDispatched = $"UPDATE {table.Name} SET dispatched_at = @dispatched_at, claimed_until = NULL WHERE id = @id";
+
+        // the retry time goes in claimed_until, so the claim query needs no second condition for it
+        _markFailed = $"UPDATE {table.Name} SET attempts = attempts + 1, claimed_until = @retry_at, last_error = @error WHERE id = @id";
+        _markDeadLettered = $"UPDATE {table.Name} SET attempts = attempts + 1, dead_lettered_at = @dead_lettered_at, "
+            + "claimed_until = NULL, last_error = @error WHERE id = @id";
     }
 
     public async Task<IReadOnlyList<OutboxMessage>> ClaimAsync(
@@ -39,7 +46,8 @@ public abstract class SqlOutboxStore : IOutboxStore
                 reader.GetString(1),
                 reader.GetString(2),
                 reader.GetFieldValue<DateTimeOffset>(3),
-                reader.IsDBNull(4) ? null : reader.GetString(4)));
+                reader.IsDBNull(4) ? null : reader.GetString(4),
+                reader.GetInt32(5)));
         }
 
         // neither RETURNING nor OUTPUT promises an order
@@ -52,6 +60,31 @@ public abstract class SqlOutboxStore : IOutboxStore
 
         await using var command = _dataSource.CreateCommand(_markDispatched);
         command.Add("@dispatched_at", dispatchedAt);
+        command.Add("@id", message.Id);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    public async Task MarkFailedAsync(OutboxMessage message, DateTimeOffset retryAt, string reason, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        ArgumentNullException.ThrowIfNull(reason);
+
+        await using var command = _dataSource.CreateCommand(_markFailed);
+        command.Add("@retry_at", retryAt);
+        command.Add("@error", reason);
+        command.Add("@id", message.Id);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    public async Task MarkDeadLetteredAsync(
+        OutboxMessage message, DateTimeOffset deadLetteredAt, string reason, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        ArgumentNullException.ThrowIfNull(reason);
+
+        await using var command = _dataSource.CreateCommand(_markDeadLettered);
+        command.Add("@dead_lettered_at", deadLetteredAt);
+        command.Add("@error", reason);
         command.Add("@id", message.Id);
         await command.ExecuteNonQueryAsync(cancellationToken);
     }

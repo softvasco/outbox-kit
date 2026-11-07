@@ -38,6 +38,9 @@ public sealed class PostgreSqlOutboxStoreTests(PostgreSqlServer server) : Outbox
             created_at timestamptz NOT NULL,
             ordering_key varchar(256),
             claimed_until timestamptz,
-            dispatched_at timestamptz)
+            dispatched_at timestamptz,
+            attempts int NOT NULL DEFAULT 0,
+            dead_lettered_at timestamptz,
+            last_error text)
         """;
 }
