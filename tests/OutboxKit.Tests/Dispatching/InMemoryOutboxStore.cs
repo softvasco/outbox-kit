@@ -13,6 +13,8 @@ internal sealed class InMemoryOutboxStore : IOutboxStore
 
     public int? LastBatchSize { get; private set; }
 
+    public DateTimeOffset? LastClaimedUntil { get; private set; }
+
     // released once per ClaimAsync, so a test can wait for the background service to poll
     public SemaphoreSlim Polls { get; } = new(0);
 
@@ -32,6 +34,7 @@ internal sealed class InMemoryOutboxStore : IOutboxStore
         int batchSize, DateTimeOffset now, DateTimeOffset claimedUntil, CancellationToken cancellationToken)
     {
         LastBatchSize = batchSize;
+        LastClaimedUntil = claimedUntil;
         IReadOnlyList<OutboxMessage> batch =
             [.. _pending.Where(m => !_claimedUntil.TryGetValue(m.Id, out var until) || until <= now).Take(batchSize)];
         foreach (var message in batch)

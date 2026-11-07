@@ -65,6 +65,6 @@ public sealed partial class OutboxDispatcherService : BackgroundService
         }
     }
 
-    [LoggerMessage(Level = LogLevel.Error, Message = "Outbox dispatch failed; the unsent messages are claimed again once their claim runs out.")]
+    [LoggerMessage(Level = LogLevel.Error, Message = "Outbox dispatch failed; a failed message is retried after its backoff, the rest once their claim runs out.")]
     private partial void LogDispatchFailed(Exception exception);
 }

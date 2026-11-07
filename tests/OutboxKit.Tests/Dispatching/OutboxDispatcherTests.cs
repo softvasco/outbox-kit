@@ -63,21 +63,19 @@ public sealed class OutboxDispatcherTests
     [Fact]
     public async Task The_batch_is_claimed_from_now_for_the_claim_duration()
     {
-        var message = _store.Add();
-        _transport.FailOn(message);
+        _store.Add();
 
-        await Assert.ThrowsAsync<HttpRequestException>(() => _dispatcher.DispatchBatchAsync(10, Claim, Token));
+        await _dispatcher.DispatchBatchAsync(10, Claim, Token);
 
-        Assert.Equal(_time.GetUtcNow() + Claim, _store.ClaimedUntil(message));
+        Assert.Equal(_time.GetUtcNow() + Claim, _store.LastClaimedUntil);
     }
 
     [Fact]
     public async Task Messages_still_claimed_by_another_relay_are_left_alone()
     {
-        var other = new OutboxDispatcher(_store, new RecordingTransport(), _time);
-        var message = _store.Add();
-        _transport.FailOn(message);
-        await Assert.ThrowsAsync<HttpRequestException>(() => _dispatcher.DispatchBatchAsync(10, Claim, Token));
+        var other = new OutboxDispatcher(_store, _transport, _time);
+        _store.Add();
+        await _store.ClaimAsync(10, _time.GetUtcNow(), _time.GetUtcNow() + Claim, Token);
 
         _time.Advance(Claim - TimeSpan.FromSeconds(1));
         var before = await other.DispatchBatchAsync(10, Claim, Token);
@@ -103,6 +101,64 @@ public sealed class OutboxDispatcherTests
     }
 
     [Fact]
+    public async Task A_failed_send_is_tried_again_after_the_first_delay_not_the_claim()
+    {
+        var message = _store.Add();
+        _transport.FailOn(message, times: 1);
+        var dispatcher = Dispatcher(new OutboxRetryPolicy { FirstDelay = TimeSpan.FromSeconds(2) });
+        await Assert.ThrowsAsync<HttpRequestException>(() => dispatcher.DispatchBatchAsync(10, Claim, Token));
+
+        _time.Advance(TimeSpan.FromSeconds(1));
+        var early = await dispatcher.DispatchBatchAsync(10, Claim, Token);
+        _time.Advance(TimeSpan.FromSeconds(1));
+        var due = await dispatcher.DispatchBatchAsync(10, Claim, Token);
+
+        Assert.Equal((0, 1), (early, due));
+        Assert.Equal("broker unavailable", Assert.Single(_store.Failed).Reason);
+    }
+
+    [Fact]
+    public async Task Each_failure_is_counted_on_the_message_so_the_wait_grows()
+    {
+        var message = _store.Add();
+        _transport.FailOn(message, times: 2);
+        var dispatcher = Dispatcher(new OutboxRetryPolicy { FirstDelay = TimeSpan.FromSeconds(2) });
+
+        await Assert.ThrowsAsync<HttpRequestException>(() => dispatcher.DispatchBatchAsync(10, Claim, Token));
+        _time.Advance(TimeSpan.FromSeconds(2));
+        await Assert.ThrowsAsync<HttpRequestException>(() => dispatcher.DispatchBatchAsync(10, Claim, Token));
+
+        Assert.Equal(_time.GetUtcNow() + TimeSpan.FromSeconds(4), _store.Failed[1].RetryAt);
+    }
+
+    [Fact]
+    public async Task A_message_is_parked_when_its_last_allowed_send_fails()
+    {
+        var message = _store.Add(attempts: 2);
+        _transport.FailOn(message);
+        var dispatcher = Dispatcher(new OutboxRetryPolicy { MaxAttempts = 3 });
+
+        await Assert.ThrowsAsync<HttpRequestException>(() => dispatcher.DispatchBatchAsync(10, Claim, Token));
+
+        Assert.Equal((message.Id, _time.GetUtcNow(), "broker unavailable"), Assert.Single(_store.DeadLettered));
+        Assert.Empty(_store.Failed);
+        Assert.Empty(_store.PendingIds);
+    }
+
+    [Fact]
+    public async Task Cancelling_mid_send_is_not_counted_as_a_failure()
+    {
+        var message = _store.Add();
+        using var cancel = CancellationTokenSource.CreateLinkedTokenSource(Token);
+        var dispatcher = new OutboxDispatcher(_store, new CancellingTransport(cancel), _time);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => dispatcher.DispatchBatchAsync(10, Claim, cancel.Token));
+
+        Assert.Empty(_store.Failed);
+        Assert.Equal([message.Id], _store.PendingIds);
+    }
+
+    [Fact]
     public async Task An_empty_outbox_sends_nothing()
     {
         Assert.Equal(0, await _dispatcher.DispatchBatchAsync(10, Claim, Token));
@@ -121,6 +177,18 @@ public sealed class OutboxDispatcherTests
     public async Task A_claim_duration_that_is_not_positive_is_refused()
     {
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => _dispatcher.DispatchBatchAsync(10, TimeSpan.Zero, Token));
+    }
+
+    private OutboxDispatcher Dispatcher(OutboxRetryPolicy retry) => new(_store, _transport, _time, retry);
+
+    // the host shuts down while the broker call is in flight
+    private sealed class CancellingTransport(CancellationTokenSource cancel) : IMessageTransport
+    {
+        public async Task SendAsync(OutboxMessage message, CancellationToken cancellationToken)
+        {
+            await cancel.CancelAsync();
+            cancellationToken.ThrowIfCancellationRequested();
+        }
     }
 
     // each send takes as long as the whole claim
