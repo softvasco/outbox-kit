@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 
 namespace OutboxKit;
 
@@ -16,10 +17,11 @@ public static class OutboxServiceCollectionExtensions
 
         services.AddOptions<OutboxDispatcherOptions>()
             .Configure(options => configure?.Invoke(options))
-            .Validate(options => options.IsValid, "PollingInterval and ClaimDuration must be positive and BatchSize at least 1.")
+            .Validate(options => options.IsValid, "PollingInterval and ClaimDuration must be positive, BatchSize at least 1, Retry.MaxAttempts at least 1, and 0 < Retry.FirstDelay <= Retry.MaxDelay.")
             .ValidateOnStart();
 
         services.TryAddSingleton(TimeProvider.System);
+        services.TryAddSingleton(provider => provider.GetRequiredService<IOptions<OutboxDispatcherOptions>>().Value.Retry);
         services.TryAddSingleton<OutboxDispatcher>();
         services.AddHostedService<OutboxDispatcherService>();
         return services;

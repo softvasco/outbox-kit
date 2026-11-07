@@ -68,18 +68,20 @@ builder.Services.AddOutboxDispatcher(o =>
     o.PollingInterval = TimeSpan.FromSeconds(1);
     o.BatchSize = 100;
     o.ClaimDuration = TimeSpan.FromSeconds(30);
+    o.Retry = new OutboxRetryPolicy { MaxAttempts = 10, FirstDelay = TimeSpan.FromSeconds(1), MaxDelay = TimeSpan.FromMinutes(5) };
 });
 ```
 
 Every instance of the service can run the dispatcher. A claim sets `claimed_until` on the batch in one statement, using `FOR UPDATE SKIP LOCKED` on PostgreSQL and `READPAST` on SQL Server, so relays polling at the same time get different messages instead of waiting on each other. If an instance dies, its batch is claimed again once the claim runs out. [ADR 2](docs/adr/0002-claim-batches-with-a-lease.md) has the reasoning.
 
-A full batch is followed by the next one straight away; it only waits for the polling interval once the outbox is drained. A failed send stops the batch, so later messages for the same key don't overtake it, and the service logs the error; the unsent messages go out again once their claim runs out. A crash between the send and the update sends that message again, which is why the consumer side needs an inbox.
+A full batch is followed by the next one straight away; it only waits for the polling interval once the outbox is drained. A failed send stops the batch, so later messages for the same key don't overtake it, and the service logs the error. The failed message waits 1, 2, 4... seconds (capped at `MaxDelay`) before any relay takes it again, and the rest of the batch goes out once its claim runs out. After `MaxAttempts` failed sends the message is dead-lettered: it stays in the table with `dead_lettered_at` and `last_error` set, and is never claimed again. [ADR 3](docs/adr/0003-retries-and-dead-letters-in-the-outbox-table.md) explains why that lives in the same table. A crash between the send and the update sends that message again, which is why the consumer side needs an inbox.
 
 ## Plan
 
 - Core model and an `IOutbox` that enqueues inside the caller's transaction (ADO.NET and EF Core).
 - A relay that leases batches with `SKIP LOCKED` on PostgreSQL and `READPAST` on SQL Server, so several instances can run at once.
-- Ordering per key, retries with backoff, and a dead-letter state.
+- Retries with backoff, and a dead-letter state.
+- Ordering per key.
 - Transports behind one port, starting with an in-memory one for tests.
 - An inbox keyed by message id and consumer name.
 - The same contract tests run against both databases with Testcontainers.

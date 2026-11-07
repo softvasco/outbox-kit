@@ -53,11 +53,11 @@ public sealed class OutboxDispatcherServiceTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task A_failed_batch_is_logged_and_retried_once_its_claim_runs_out()
+    public async Task A_failed_send_is_logged_and_retried_after_its_backoff_not_its_claim()
     {
         var message = _store.Add();
         _transport.FailOn(message, times: 1);
-        await Start(batchSize: 10, claim: Interval * 3);
+        await Start(batchSize: 10, claim: Interval * 3, retry: new OutboxRetryPolicy { FirstDelay = Interval });
         await NextPoll();
 
         var waited = await AdvanceUntilSent(message);
@@ -65,7 +65,7 @@ public sealed class OutboxDispatcherServiceTests : IAsyncDisposable
 
         var error = Assert.Single(_logger.Collector.GetSnapshot(), r => r.Level == LogLevel.Error);
         Assert.IsType<HttpRequestException>(error.Exception);
-        Assert.True(waited >= Interval * 3, $"sent again after {waited}");
+        Assert.True(waited >= Interval && waited < Interval * 3, $"sent again after {waited}");
         Assert.Empty(_store.PendingIds);
     }
 
@@ -91,19 +91,20 @@ public sealed class OutboxDispatcherServiceTests : IAsyncDisposable
         Assert.Throws<ArgumentOutOfRangeException>(() => Create(options));
     }
 
-    private async Task Start(int batchSize, TimeSpan? claim = null)
+    private async Task Start(int batchSize, TimeSpan? claim = null, OutboxRetryPolicy? retry = null)
     {
         _service = Create(new OutboxDispatcherOptions
         {
             PollingInterval = Interval,
             BatchSize = batchSize,
             ClaimDuration = claim ?? Interval,
+            Retry = retry ?? new OutboxRetryPolicy(),
         });
         await _service.StartAsync(Token);
     }
 
     private OutboxDispatcherService Create(OutboxDispatcherOptions options) =>
-        new(new OutboxDispatcher(_store, _transport, _time), Options.Create(options), _time, _logger);
+        new(new OutboxDispatcher(_store, _transport, _time, options.Retry), Options.Create(options), _time, _logger);
 
     private async Task NextPoll()
     {

@@ -36,6 +36,25 @@ public sealed class OutboxServiceCollectionExtensionsTests
     }
 
     [Fact]
+    public void The_retry_policy_from_the_options_reaches_the_dispatcher()
+    {
+        var retry = new OutboxRetryPolicy { MaxAttempts = 3 };
+        using var provider = Services().AddOutboxDispatcher(o => o.Retry = retry).BuildServiceProvider();
+
+        provider.GetRequiredService<OutboxDispatcher>();
+
+        Assert.Same(retry, provider.GetRequiredService<OutboxRetryPolicy>());
+    }
+
+    [Fact]
+    public void A_retry_policy_that_never_sends_is_refused_on_resolve()
+    {
+        using var provider = Services().AddOutboxDispatcher(o => o.Retry = new OutboxRetryPolicy { MaxAttempts = 0 }).BuildServiceProvider();
+
+        Assert.Throws<OptionsValidationException>(() => provider.GetRequiredService<IOptions<OutboxDispatcherOptions>>().Value);
+    }
+
+    [Fact]
     public void A_time_provider_the_app_already_registered_is_kept()
     {
         var clock = new Microsoft.Extensions.Time.Testing.FakeTimeProvider();

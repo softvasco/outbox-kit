@@ -8,11 +8,11 @@ public sealed class SqlServerOutboxStore(DbDataSource dataSource, OutboxTable ta
     // UPDLOCK holds what it reads, READPAST skips rows another relay holds, ROWLOCK avoids page locks
     private static string ClaimSql(string table) => $"""
         WITH batch AS (
-            SELECT TOP (@batch_size) id, type, payload, created_at, ordering_key, claimed_until
+            SELECT TOP (@batch_size) id, type, payload, created_at, ordering_key, attempts, claimed_until
             FROM {table} WITH (UPDLOCK, READPAST, ROWLOCK)
-            WHERE dispatched_at IS NULL AND (claimed_until IS NULL OR claimed_until <= @now)
+            WHERE dispatched_at IS NULL AND dead_lettered_at IS NULL AND (claimed_until IS NULL OR claimed_until <= @now)
             ORDER BY created_at, id)
         UPDATE batch SET claimed_until = @claimed_until
-        OUTPUT inserted.id, inserted.type, inserted.payload, inserted.created_at, inserted.ordering_key
+        OUTPUT inserted.id, inserted.type, inserted.payload, inserted.created_at, inserted.ordering_key, inserted.attempts
         """;
 }

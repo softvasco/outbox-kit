@@ -69,6 +69,33 @@ public abstract class OutboxStoreContract : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_failed_message_waits_for_its_retry_time_and_comes_back_with_the_attempt_counted()
+    {
+        await Insert(Now);
+        var message = Assert.Single(await _store.ClaimAsync(10, Now, Now + Claim, Token));
+        var retryAt = Now.AddMinutes(1);
+
+        await _store.MarkFailedAsync(message, retryAt, "broker unavailable", Token);
+
+        Assert.Empty(await _store.ClaimAsync(10, retryAt.AddSeconds(-1), retryAt + Claim, Token));
+        var retried = Assert.Single(await _store.ClaimAsync(10, retryAt, retryAt + Claim, Token));
+        Assert.Equal(1, retried.Attempts);
+        Assert.Equal("broker unavailable", await LastError(message.Id));
+    }
+
+    [Fact]
+    public async Task A_dead_lettered_message_is_never_claimed_again_and_keeps_why()
+    {
+        await Insert(Now);
+        var message = Assert.Single(await _store.ClaimAsync(10, Now, Now + Claim, Token));
+
+        await _store.MarkDeadLetteredAsync(message, Now, "payload rejected", Token);
+
+        Assert.Empty(await _store.ClaimAsync(10, Now.AddDays(1), Now.AddDays(1) + Claim, Token));
+        Assert.Equal("payload rejected", await LastError(message.Id));
+    }
+
+    [Fact]
     public async Task The_message_comes_back_as_it_was_saved()
     {
         var saved = new OutboxMessage(Guid.CreateVersion7(), "orders.placed", """{"id":42}""", Now, "order-42");
@@ -148,6 +175,13 @@ public abstract class OutboxStoreContract : IAsyncLifetime
         Parameter(insert, "@created_at", message.CreatedAt);
         Parameter(insert, "@ordering_key", message.OrderingKey);
         await insert.ExecuteNonQueryAsync(Token);
+    }
+
+    private async Task<string?> LastError(Guid id)
+    {
+        await using var select = DataSource.CreateCommand($"SELECT last_error FROM {_table.Name} WHERE id = @id");
+        Parameter(select, "@id", id);
+        return await select.ExecuteScalarAsync(Token) as string;
     }
 
     private static void Parameter(DbCommand command, string name, object? value)
