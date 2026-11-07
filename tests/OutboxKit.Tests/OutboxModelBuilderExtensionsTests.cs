@@ -14,8 +14,18 @@ public sealed class OutboxModelBuilderExtensionsTests
         Assert.Equal(OutboxTable.DefaultName, entity.GetTableName());
         Assert.Null(entity.GetSchema());
         Assert.Equal(
-            ["created_at", "id", "ordering_key", "payload", "type"],
+            ["claimed_until", "created_at", "dispatched_at", "id", "ordering_key", "payload", "type"],
             entity.GetProperties().Select(p => p.GetColumnName()).Order());
+    }
+
+    [Fact]
+    public void The_columns_only_the_stores_use_are_nullable_and_hidden_from_the_message()
+    {
+        var entity = Map(table: null);
+
+        Assert.All(
+            ["ClaimedUntil", "DispatchedAt"],
+            name => Assert.True(entity.FindProperty(name) is { IsNullable: true } property && property.IsShadowProperty(), name));
     }
 
     [Fact]
