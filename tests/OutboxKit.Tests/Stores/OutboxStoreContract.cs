@@ -5,7 +5,7 @@ using OutboxKit.Stores;
 namespace OutboxKit.Tests.Stores;
 
 /// <summary>What every database store must do; each engine runs these against a real server.</summary>
-public abstract class OutboxStoreContract : IAsyncLifetime
+public abstract partial class OutboxStoreContract : IAsyncLifetime
 {
     private static readonly DateTimeOffset Now = new(2026, 11, 7, 0, 0, 0, TimeSpan.Zero);
     private static readonly TimeSpan Claim = TimeSpan.FromSeconds(30);
