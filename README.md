@@ -5,7 +5,7 @@
 
 Transactional outbox and inbox for .NET. A message is saved in the same database transaction as the data that caused it, a relay delivers it at least once, and the consumer side makes sure it is handled once.
 
-Early days: messages can be saved with the caller's transaction (ADO.NET or EF Core), and a hosted dispatcher claims them from PostgreSQL or SQL Server and sends them through a transport you plug in. Retries, ordering per key and the inbox come next, so nothing ships ready to publish yet.
+Early days: messages can be saved with the caller's transaction (ADO.NET or EF Core), and a hosted dispatcher claims them from PostgreSQL or SQL Server and sends them through a transport you plug in. Failed sends are retried with backoff, messages for one ordering key go out in order, and the inbox comes next, so nothing ships ready to publish yet.
 
 ## Why
 
@@ -73,6 +73,8 @@ builder.Services.AddOutboxDispatcher(o =>
 ```
 
 Every instance of the service can run the dispatcher. A claim sets `claimed_until` on the batch in one statement, using `FOR UPDATE SKIP LOCKED` on PostgreSQL and `READPAST` on SQL Server, so relays polling at the same time get different messages instead of waiting on each other. If an instance dies, its batch is claimed again once the claim runs out. [ADR 2](docs/adr/0002-claim-batches-with-a-lease.md) has the reasoning.
+
+Messages with the same ordering key go out in the order they were saved. The claim skips a message while an older one for its key is still pending, so a batch holds at most one message per key and two relays never work on the same key. Messages for other keys, or with no key, aren't held up. [ADR 4](docs/adr/0004-ordering-per-key-in-the-claim-query.md) covers the trade-offs.
 
 A full batch is followed by the next one straight away; it only waits for the polling interval once the outbox is drained. A failed send stops the batch, so later messages for the same key don't overtake it, and the service logs the error. The failed message waits 1, 2, 4... seconds (capped at `MaxDelay`) before any relay takes it again, and the rest of the batch goes out once its claim runs out. After `MaxAttempts` failed sends the message is dead-lettered: it stays in the table with `dead_lettered_at` and `last_error` set, and is never claimed again. [ADR 3](docs/adr/0003-retries-and-dead-letters-in-the-outbox-table.md) explains why that lives in the same table. A crash between the send and the update sends that message again, which is why the consumer side needs an inbox.
 
