@@ -7,11 +7,15 @@ public sealed class OutboxDispatcherOptions
 
     public int BatchSize { get; set; } = 100;
 
-    internal bool IsValid => PollingInterval > TimeSpan.Zero && BatchSize >= 1;
+    /// <summary>How long a claimed batch stays with this instance. A relay that dies frees its batch after this.</summary>
+    public TimeSpan ClaimDuration { get; set; } = TimeSpan.FromSeconds(30);
+
+    internal bool IsValid => PollingInterval > TimeSpan.Zero && BatchSize >= 1 && ClaimDuration > TimeSpan.Zero;
 
     internal void Validate()
     {
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(PollingInterval, TimeSpan.Zero, nameof(PollingInterval));
         ArgumentOutOfRangeException.ThrowIfLessThan(BatchSize, 1, nameof(BatchSize));
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(ClaimDuration, TimeSpan.Zero, nameof(ClaimDuration));
     }
 }

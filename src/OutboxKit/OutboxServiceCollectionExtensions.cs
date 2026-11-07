@@ -16,7 +16,7 @@ public static class OutboxServiceCollectionExtensions
 
         services.AddOptions<OutboxDispatcherOptions>()
             .Configure(options => configure?.Invoke(options))
-            .Validate(options => options.IsValid, "PollingInterval must be positive and BatchSize at least 1.")
+            .Validate(options => options.IsValid, "PollingInterval and ClaimDuration must be positive and BatchSize at least 1.")
             .ValidateOnStart();
 
         services.TryAddSingleton(TimeProvider.System);

@@ -55,7 +55,7 @@ public sealed partial class OutboxDispatcherService : BackgroundService
     {
         try
         {
-            return await _dispatcher.DispatchBatchAsync(_options.BatchSize, stoppingToken);
+            return await _dispatcher.DispatchBatchAsync(_options.BatchSize, _options.ClaimDuration, stoppingToken);
         }
         catch (Exception exception) when (exception is not OperationCanceledException || !stoppingToken.IsCancellationRequested)
         {
@@ -65,6 +65,6 @@ public sealed partial class OutboxDispatcherService : BackgroundService
         }
     }
 
-    [LoggerMessage(Level = LogLevel.Error, Message = "Outbox dispatch failed; the batch stays pending for the next poll.")]
+    [LoggerMessage(Level = LogLevel.Error, Message = "Outbox dispatch failed; the unsent messages are claimed again once their claim runs out.")]
     private partial void LogDispatchFailed(Exception exception);
 }
