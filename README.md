@@ -78,13 +78,28 @@ Messages with the same ordering key go out in the order they were saved. The cla
 
 A full batch is followed by the next one straight away; it only waits for the polling interval once the outbox is drained. A failed send stops the batch, so later messages for the same key don't overtake it, and the service logs the error. The failed message waits 1, 2, 4... seconds (capped at `MaxDelay`) before any relay takes it again, and the rest of the batch goes out once its claim runs out. After `MaxAttempts` failed sends the message is dead-lettered: it stays in the table with `dead_lettered_at` and `last_error` set, and is never claimed again. [ADR 3](docs/adr/0003-retries-and-dead-letters-in-the-outbox-table.md) explains why that lives in the same table. A crash between the send and the update sends that message again, which is why the consumer side needs an inbox; [docs/delivery.md](docs/delivery.md) lists every case where a message can arrive twice.
 
+## Testing without a broker
+
+`InMemoryTransport` keeps what the dispatcher sends in a channel, in send order, so a test can enqueue in a real transaction, run the dispatcher and read the messages back:
+
+```csharp
+var transport = new InMemoryTransport();
+builder.Services.AddSingleton<IMessageTransport>(transport);
+
+// ... save an order, let the dispatcher run
+var sent = await transport.Sent.ReadAsync(ct);
+Assert.Equal("orders.placed", sent.Type);
+```
+
+It never fails a send, so a test for retries or dead letters still needs a transport that throws.
+
 ## Plan
 
 - Core model and an `IOutbox` that enqueues inside the caller's transaction (ADO.NET and EF Core).
 - A relay that leases batches with `SKIP LOCKED` on PostgreSQL and `READPAST` on SQL Server, so several instances can run at once.
 - Retries with backoff, and a dead-letter state.
 - Ordering per key.
-- Transports behind one port, starting with an in-memory one for tests.
+- Transports behind one port: the in-memory one for tests is in, RabbitMQ, Azure Service Bus and Kafka are next.
 - An inbox keyed by message id and consumer name.
 - The same contract tests run against both databases with Testcontainers.
 
