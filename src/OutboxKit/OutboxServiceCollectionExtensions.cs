@@ -26,4 +26,19 @@ public static class OutboxServiceCollectionExtensions
         services.AddHostedService<OutboxDispatcherService>();
         return services;
     }
+
+    /// <summary>Deletes old dispatched messages in the background.</summary>
+    public static IServiceCollection AddOutboxRetention(this IServiceCollection services, Action<OutboxRetentionOptions>? configure = null)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        services.AddOptions<OutboxRetentionOptions>()
+            .Configure(options => configure?.Invoke(options))
+            .Validate(options => options.IsValid, "RetainFor and Interval must be positive and BatchSize at least 1.")
+            .ValidateOnStart();
+
+        services.TryAddSingleton(TimeProvider.System);
+        services.AddHostedService<OutboxRetentionService>();
+        return services;
+    }
 }
