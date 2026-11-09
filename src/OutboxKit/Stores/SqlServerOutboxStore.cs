@@ -3,8 +3,15 @@ using System.Data.Common;
 namespace OutboxKit.Stores;
 
 /// <summary>Claims batches on SQL Server. Pass <c>SqlClientFactory.Instance.CreateDataSource(connectionString)</c>.</summary>
-public sealed class SqlServerOutboxStore(DbDataSource dataSource, OutboxTable table) : SqlOutboxStore(dataSource, table, ClaimSql)
+public sealed class SqlServerOutboxStore(DbDataSource dataSource, OutboxTable table)
+    : SqlOutboxStore(dataSource, table, ClaimSql, DeleteDispatchedSql)
 {
+    // small batches and ROWLOCK keep the engine from escalating to a table lock under the relays
+    private static string DeleteDispatchedSql(string table) => $"""
+        DELETE TOP (@batch_size) FROM {table} WITH (ROWLOCK, READPAST)
+        WHERE dispatched_at < @cutoff
+        """;
+
     // UPDLOCK holds what it reads, READPAST skips rows another relay holds, ROWLOCK avoids page locks
     private static string ClaimSql(string table) => $"""
         WITH batch AS (
