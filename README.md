@@ -53,6 +53,21 @@ dbContextOutbox.Enqueue(db, new OrderPlaced(order.Id));
 await db.SaveChangesAsync(ct);
 ```
 
+If your aggregates raise their own messages, implement `IHasOutboxMessages` on them and add the interceptor instead. Every `SaveChanges` takes the messages from the tracked entities and writes them in the same transaction:
+
+```csharp
+options.UseSqlServer(connectionString).AddInterceptors(new OutboxSaveChangesInterceptor(dbContextOutbox));
+
+public IReadOnlyList<PendingOutboxMessage> TakeOutboxMessages()
+{
+    var taken = _raised.ToList();
+    _raised.Clear();
+    return taken;
+}
+```
+
+Taking clears them, so saving the context twice doesn't write a message twice.
+
 Both write the same table and columns (`outbox_messages` by default), so one service can use either.
 
 ## Sending messages
