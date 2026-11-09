@@ -3,22 +3,25 @@ using System.Data.Common;
 namespace OutboxKit.Stores;
 
 /// <summary>The part of a database store that is the same on every engine; only the claim query differs.</summary>
-public abstract class SqlOutboxStore : IOutboxStore
+public abstract class SqlOutboxStore : IOutboxStore, IOutboxRetentionStore
 {
     private readonly DbDataSource _dataSource;
     private readonly string _claim;
+    private readonly string _deleteDispatched;
     private readonly string _markDispatched;
     private readonly string _markFailed;
     private readonly string _markDeadLettered;
 
     // claimSql builds one statement that sets claimed_until on the batch and returns its rows
-    private protected SqlOutboxStore(DbDataSource dataSource, OutboxTable table, Func<string, string> claimSql)
+    private protected SqlOutboxStore(
+        DbDataSource dataSource, OutboxTable table, Func<string, string> claimSql, Func<string, string> deleteDispatchedSql)
     {
         ArgumentNullException.ThrowIfNull(dataSource);
         ArgumentNullException.ThrowIfNull(table);
 
         _dataSource = dataSource;
         _claim = claimSql(table.Name);
+        _deleteDispatched = deleteDispatchedSql(table.Name);
         _markDispatched = $"UPDATE {table.Name} SET dispatched_at = @dispatched_at, claimed_until = NULL WHERE id = @id";
 
         // the retry time goes in claimed_until, so the claim query needs no second condition for it
@@ -60,6 +63,16 @@ public abstract class SqlOutboxStore : IOutboxStore
 
         // neither RETURNING nor OUTPUT promises an order
         return [.. batch.OrderBy(m => m.CreatedAt).ThenBy(m => m.Id)];
+    }
+
+    public async Task<int> DeleteDispatchedAsync(DateTimeOffset cutoff, int batchSize, CancellationToken cancellationToken)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(batchSize, 1);
+
+        await using var command = _dataSource.CreateCommand(_deleteDispatched);
+        command.Add("@cutoff", cutoff);
+        command.Add("@batch_size", batchSize);
+        return await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
     public async Task MarkDispatchedAsync(OutboxMessage message, DateTimeOffset dispatchedAt, CancellationToken cancellationToken)
