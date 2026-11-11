@@ -25,7 +25,7 @@ jobs:
       - run: dotnet test --no-build -c Release --coverage --coverage-output-format cobertura --results-directory ./coverage
       - name: coverage report
         if: hashFiles('coverage/**/*.cobertura.xml') != ''
-        uses: danielpalme/ReportGenerator-GitHub-Action@5
+        uses: danielpalme/ReportGenerator-GitHub-Action@5f3701a41d14548c9b8e575a5c235230e515cbc0 # v5.6.0
         with:
           reports: coverage/**/*.cobertura.xml
           targetdir: coverage/report
