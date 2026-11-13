@@ -93,6 +93,8 @@ Messages with the same ordering key go out in the order they were saved. The cla
 
 A full batch is followed by the next one straight away; it only waits for the polling interval once the outbox is drained. A failed send stops the batch, so later messages for the same key don't overtake it, and the service logs the error. The failed message waits 1, 2, 4... seconds (capped at `MaxDelay`) before any relay takes it again, and the rest of the batch goes out once its claim runs out. After `MaxAttempts` failed sends the message is dead-lettered: it stays in the table with `dead_lettered_at` and `last_error` set, and is never claimed again. [ADR 3](docs/adr/0003-retries-and-dead-letters-in-the-outbox-table.md) explains why that lives in the same table. A crash between the send and the update sends that message again, which is why the consumer side needs an inbox; [docs/delivery.md](docs/delivery.md) lists every case where a message can arrive twice.
 
+On a laptop, one relay sends about 500 to 700 messages a second through SQL Server once the batch is 10 or more; each message still has its own update, so bigger batches gain little. The numbers for both databases are in [docs/performance.md](docs/performance.md).
+
 ## Cleaning up
 
 Dispatched rows are only useful for a while, and a table that grows forever slows down the claim. `AddOutboxRetention` deletes them in the background:
