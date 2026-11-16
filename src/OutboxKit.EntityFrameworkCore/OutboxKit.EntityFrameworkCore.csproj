@@ -5,6 +5,8 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+    <PackageReference Include="Microsoft.Extensions.Logging" VersionOverride="11.0.0" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\OutboxKit\OutboxKit.csproj" />
