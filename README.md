@@ -13,7 +13,7 @@ A handler that saves an order and then publishes `OrderPlaced` to a broker does 
 
 The outbox fixes the producer side by writing the message to a table in the same transaction as the order. A relay reads that table and publishes. That gives at-least-once delivery, so the consumer side needs an inbox that remembers which messages it already handled.
 
-Most .NET teams get this from a full messaging framework. I want the outbox and inbox on their own, small enough to read in an evening, working the same way on SQL Server and PostgreSQL, with tests that kill the relay halfway through a batch.
+Most .NET teams get this from a full messaging framework: MassTransit (commercial from v9), Wolverine or Brighter. Their outboxes work, but you take the framework's handlers, routing and conventions along with them. I want the outbox and inbox on their own, small enough to read in an evening, working the same way on SQL Server and PostgreSQL, with tests that kill the relay halfway through a batch.
 
 ## How it fits
 
