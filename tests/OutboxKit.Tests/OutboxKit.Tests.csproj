@@ -10,9 +10,11 @@
     <PackageReference Include="System.Security.Cryptography.Pkcs" />
     <PackageReference Include="Testcontainers.MsSql" />
     <PackageReference Include="Testcontainers.PostgreSql" />
+    <PackageReference Include="Testcontainers.RabbitMq" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\OutboxKit\OutboxKit.csproj" />
     <ProjectReference Include="..\..\src\OutboxKit.EntityFrameworkCore\OutboxKit.EntityFrameworkCore.csproj" />
+    <ProjectReference Include="..\..\src\OutboxKit.RabbitMQ\OutboxKit.RabbitMQ.csproj" />
   </ItemGroup>
 </Project>
