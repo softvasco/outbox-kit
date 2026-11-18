@@ -10,8 +10,11 @@ public sealed class RabbitMqTransportOptions
 
     public string ContentType { get; set; } = "application/json";
 
-    /// <summary>How long to wait for the broker to confirm a publish before the send counts as failed.</summary>
-    public TimeSpan ConfirmTimeout { get; set; } = TimeSpan.FromSeconds(30);
+    /// <summary>
+    /// How long to wait for the broker to confirm a publish before the send counts as failed. Keep it well under the
+    /// dispatcher's ClaimDuration, or a slow send can land after another relay has sent the message again.
+    /// </summary>
+    public TimeSpan ConfirmTimeout { get; set; } = TimeSpan.FromSeconds(10);
 
     internal bool IsValid =>
         Exchange is not null && RoutingKey is not null && !string.IsNullOrWhiteSpace(ContentType) && ConfirmTimeout > TimeSpan.Zero;

@@ -104,6 +104,13 @@ public sealed class RabbitMqTransportTests(RabbitMqBroker broker) : IClassFixtur
     }
 
     [Fact]
+    public void The_default_confirm_timeout_is_well_under_the_default_claim()
+    {
+        // otherwise a send still waiting for its confirm can land after another relay resent the message (docs/delivery.md)
+        Assert.True(new RabbitMqTransportOptions().ConfirmTimeout * 2 <= new OutboxDispatcherOptions().ClaimDuration);
+    }
+
+    [Fact]
     public void A_confirm_timeout_of_zero_is_rejected()
     {
         var options = new RabbitMqTransportOptions { ConfirmTimeout = TimeSpan.Zero };
