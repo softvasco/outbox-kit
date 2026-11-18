@@ -111,6 +111,18 @@ builder.Services.AddOutboxRetention(o =>
 
 It deletes one batch at a time and skips rows another transaction holds, so it doesn't block the relays. Pending and dead-lettered messages are never touched.
 
+## Sending to RabbitMQ
+
+`OutboxKit.RabbitMQ` publishes each message on a channel with publisher confirms, so a send only counts once the broker has it:
+
+```csharp
+var factory = new ConnectionFactory { Uri = new Uri(builder.Configuration.GetConnectionString("rabbitmq")!) };
+builder.Services.AddSingleton(await factory.CreateConnectionAsync());
+builder.Services.AddRabbitMqTransport(o => o.Exchange = "orders");
+```
+
+Messages go out persistent, with the outbox id as `MessageId`, the registered type as `Type` and as the default routing key, and the ordering key in an `outbox-ordering-key` header. They're published as mandatory, so a message no queue is bound for comes back as a failed send and gets retried, instead of being dropped by the exchange. A nack, or no confirm within `ConfirmTimeout` (10 seconds by default, well under the 30 second claim), fails the send the same way. The connection is yours: the transport opens one channel on it and opens a new one if the broker closes it.
+
 ## Testing without a broker
 
 `InMemoryTransport` keeps what the dispatcher sends in a channel, in send order, so a test can enqueue in a real transaction, run the dispatcher and read the messages back:
@@ -132,7 +144,7 @@ It never fails a send, so a test for retries or dead letters still needs a trans
 - A relay that leases batches with `SKIP LOCKED` on PostgreSQL and `READPAST` on SQL Server, so several instances can run at once.
 - Retries with backoff, and a dead-letter state.
 - Ordering per key.
-- Transports behind one port: the in-memory one for tests is in, RabbitMQ, Azure Service Bus and Kafka are next.
+- Transports behind one port: in-memory for tests and RabbitMQ are in, Azure Service Bus and Kafka are next.
 - An inbox keyed by message id and consumer name.
 - The same contract tests run against both databases with Testcontainers.
 

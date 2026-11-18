@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>RabbitMQ transport for OutboxKit: every outbox message is published as persistent and only counts as sent once the broker confirms it.</Description>
+    <PackageTags>outbox;transactional-outbox;messaging;rabbitmq;amqp</PackageTags>
+    <RootNamespace>OutboxKit.RabbitMQ</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="RabbitMQ.Client" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\OutboxKit\OutboxKit.csproj" />
+  </ItemGroup>
+</Project>
