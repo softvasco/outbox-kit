@@ -1,4 +1,6 @@
 using System.Text;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using OutboxKit.RabbitMQ;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Exceptions;
@@ -107,6 +109,34 @@ public sealed class RabbitMqTransportTests(RabbitMqBroker broker) : IClassFixtur
         var options = new RabbitMqTransportOptions { ConfirmTimeout = TimeSpan.Zero };
 
         Assert.Throws<ArgumentOutOfRangeException>(() => new RabbitMqTransport(broker.Connection, options));
+    }
+
+    [Fact]
+    public async Task The_registered_transport_publishes_on_the_connection_from_the_container()
+    {
+        await using var channel = await broker.Connection.CreateChannelAsync(cancellationToken: Token);
+        var exchange = await DeclareTopicExchangeAsync(channel);
+        var queue = await DeclareQueueAsync(channel);
+        await channel.QueueBindAsync(queue, exchange, "#", cancellationToken: Token);
+        await using var provider = new ServiceCollection()
+            .AddSingleton(broker.Connection)
+            .AddRabbitMqTransport(o => o.Exchange = exchange)
+            .BuildServiceProvider(validateScopes: true);
+
+        await provider.GetRequiredService<IMessageTransport>().SendAsync(Message("orders.placed"), Token);
+
+        Assert.Equal(1u, await channel.MessageCountAsync(queue, Token));
+    }
+
+    [Fact]
+    public void Bad_registered_options_fail_when_resolved()
+    {
+        using var provider = new ServiceCollection()
+            .AddSingleton(broker.Connection)
+            .AddRabbitMqTransport(o => o.ConfirmTimeout = TimeSpan.Zero)
+            .BuildServiceProvider();
+
+        Assert.Throws<OptionsValidationException>(() => provider.GetRequiredService<IMessageTransport>());
     }
 
     private static OutboxMessage Message(string type) => new(Guid.CreateVersion7(), type, "{}", Now);

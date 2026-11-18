@@ -7,7 +7,7 @@ namespace OutboxKit.RabbitMQ;
 /// Publishes outbox messages to RabbitMQ with publisher confirms. A send only returns once the broker has the message,
 /// and a nack, an unroutable message or a missing confirm throws, so the dispatcher retries it.
 /// </summary>
-public sealed class RabbitMqTransport : IMessageTransport, IAsyncDisposable
+public sealed class RabbitMqTransport : IMessageTransport, IAsyncDisposable, IDisposable
 {
     public const string OrderingKeyHeader = "outbox-ordering-key";
 
@@ -66,6 +66,12 @@ public sealed class RabbitMqTransport : IMessageTransport, IAsyncDisposable
             await _channel.DisposeAsync();
         }
 
+        _gate.Dispose();
+    }
+
+    public void Dispose()
+    {
+        _channel?.Dispose();
         _gate.Dispose();
     }
 
