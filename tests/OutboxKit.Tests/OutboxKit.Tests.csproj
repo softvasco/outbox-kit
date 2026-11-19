@@ -11,9 +11,11 @@
     <PackageReference Include="Testcontainers.MsSql" />
     <PackageReference Include="Testcontainers.PostgreSql" />
     <PackageReference Include="Testcontainers.RabbitMq" />
+    <PackageReference Include="Testcontainers.ServiceBus" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\OutboxKit\OutboxKit.csproj" />
+    <ProjectReference Include="..\..\src\OutboxKit.AzureServiceBus\OutboxKit.AzureServiceBus.csproj" />
     <ProjectReference Include="..\..\src\OutboxKit.EntityFrameworkCore\OutboxKit.EntityFrameworkCore.csproj" />
     <ProjectReference Include="..\..\src\OutboxKit.RabbitMQ\OutboxKit.RabbitMQ.csproj" />
   </ItemGroup>
