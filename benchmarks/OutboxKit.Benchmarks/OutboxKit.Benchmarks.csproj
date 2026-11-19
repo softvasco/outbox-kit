@@ -6,6 +6,8 @@
   <ItemGroup>
     <PackageReference Include="BenchmarkDotNet" />
     <PackageReference Include="Microsoft.Data.SqlClient" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" VersionOverride="11.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging" VersionOverride="11.0.0" />
     <PackageReference Include="Npgsql" />
     <PackageReference Include="System.Security.Cryptography.Pkcs" />
     <PackageReference Include="Testcontainers.MsSql" />
