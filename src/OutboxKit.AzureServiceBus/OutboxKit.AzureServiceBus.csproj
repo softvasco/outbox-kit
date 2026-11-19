@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Azure Service Bus transport for OutboxKit: every outbox message goes to a queue or topic with its outbox id as the MessageId, so duplicate detection can drop a resend.</Description>
+    <PackageTags>outbox;transactional-outbox;messaging;azure-service-bus;servicebus</PackageTags>
+    <RootNamespace>OutboxKit.AzureServiceBus</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Azure.Messaging.ServiceBus" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\OutboxKit\OutboxKit.csproj" />
+  </ItemGroup>
+</Project>

@@ -3,6 +3,7 @@
     <Project Path="benchmarks/OutboxKit.Benchmarks/OutboxKit.Benchmarks.csproj" />
   </Folder>
   <Folder Name="/src/">
+    <Project Path="src/OutboxKit.AzureServiceBus/OutboxKit.AzureServiceBus.csproj" />
     <Project Path="src/OutboxKit.RabbitMQ/OutboxKit.RabbitMQ.csproj" />
     <Project Path="src/OutboxKit/OutboxKit.csproj" />
     <Project Path="src/OutboxKit.EntityFrameworkCore/OutboxKit.EntityFrameworkCore.csproj" />
