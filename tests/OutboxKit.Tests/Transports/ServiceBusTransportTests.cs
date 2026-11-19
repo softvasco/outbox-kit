@@ -11,6 +11,7 @@ public sealed class ServiceBusEmulator : IAsyncLifetime
 {
     public const string Queue = "outbox";
     public const string SessionQueue = "outbox-sessions";
+    public const string ContractQueue = "outbox-contract";
     public const string Topic = "outbox-events";
     public const string Subscription = "all";
 
@@ -37,7 +38,15 @@ public sealed class ServiceBusEmulator : IAsyncLifetime
         Path.Join(Path.GetDirectoryName(testFile)!, "servicebus-config.json");
 }
 
-public sealed class ServiceBusTransportTests(ServiceBusEmulator emulator) : IClassFixture<ServiceBusEmulator>
+// the emulator takes a while to start, so every Service Bus test class shares one
+[CollectionDefinition(Name)]
+public sealed class SharedServiceBusEmulator : ICollectionFixture<ServiceBusEmulator>
+{
+    public const string Name = "Service Bus emulator";
+}
+
+[Collection(SharedServiceBusEmulator.Name)]
+public sealed class ServiceBusTransportTests(ServiceBusEmulator emulator)
 {
     private static readonly DateTimeOffset Now = new(2026, 11, 19, 20, 0, 0, TimeSpan.Zero);
 
