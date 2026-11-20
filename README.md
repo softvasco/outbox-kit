@@ -111,6 +111,23 @@ builder.Services.AddOutboxRetention(o =>
 
 It deletes one batch at a time and skips rows another transaction holds, so it doesn't block the relays. Pending and dead-lettered messages are never touched.
 
+## Transports
+
+Each broker is its own package, so an app only restores the client it uses ([ADR 5](docs/adr/0005-one-package-per-transport.md)).
+
+| | In-memory | RabbitMQ | Azure Service Bus | Kafka |
+|---|---|---|---|---|
+| Package | `OutboxKit` | `OutboxKit.RabbitMQ` | `OutboxKit.AzureServiceBus` | planned ([#14](https://github.com/softvasco/outbox-kit/issues/14)) |
+| Client | none | RabbitMQ.Client 7 | Azure.Messaging.ServiceBus 7 | |
+| Outbox id | on the message | `MessageId` | `MessageId` | |
+| Type | on the message | `Type`, default routing key | `Subject` | |
+| Ordering key | on the message | `outbox-ordering-key` header | `outbox-ordering-key` property, optionally `SessionId` | |
+| Sent when | written to the channel | the broker confirms (mandatory publish) | the send call returns | |
+| Time limit | none | `ConfirmTimeout`, 10s | `SendTimeout`, 10s | |
+| Broker drops a resend | no | no | with duplicate detection on | |
+
+All of them pass the same contract tests, described in [CONTRIBUTING](CONTRIBUTING.md#adding-a-transport).
+
 ## Sending to RabbitMQ
 
 `OutboxKit.RabbitMQ` publishes each message on a channel with publisher confirms, so a send only counts once the broker has it:
