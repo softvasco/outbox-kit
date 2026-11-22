@@ -8,9 +8,11 @@ namespace OutboxKit.Tests.Inbox;
 public abstract class InboxContract : IAsyncLifetime
 {
     private const string Consumer = "billing";
+    private static readonly DateTimeOffset Now = new(2026, 11, 22, 0, 0, 0, TimeSpan.Zero);
 
     private readonly InboxTable _table = new($"inbox_{Guid.NewGuid():N}");
     private IInbox _inbox = null!;
+    private IInboxRetentionStore _retention = null!;
 
     protected static CancellationToken Token => TestContext.Current.CancellationToken;
 
@@ -18,13 +20,16 @@ public abstract class InboxContract : IAsyncLifetime
 
     protected abstract IInbox CreateInbox(InboxTable table, TimeProvider clock);
 
+    protected abstract IInboxRetentionStore CreateRetentionStore(InboxTable table);
+
     protected abstract string CreateTableSql(string table);
 
     public async ValueTask InitializeAsync()
     {
         await using var create = DataSource.CreateCommand(CreateTableSql(_table.Name));
         await create.ExecuteNonQueryAsync(Token);
-        _inbox = CreateInbox(_table, new FakeTimeProvider(new DateTimeOffset(2026, 11, 22, 0, 0, 0, TimeSpan.Zero)));
+        _inbox = CreateInbox(_table, new FakeTimeProvider(Now));
+        _retention = CreateRetentionStore(_table);
     }
 
     public async ValueTask DisposeAsync()
@@ -90,6 +95,84 @@ public abstract class InboxContract : IAsyncLifetime
         await first.RollbackAsync(Token);
 
         Assert.True(await second);
+    }
+
+    [Fact]
+    public async Task Only_rows_handled_before_the_cutoff_are_deleted()
+    {
+        await Insert("old", Now.AddDays(-31));
+        await Insert("recent", Now.AddDays(-1));
+
+        var deleted = await _retention.DeleteHandledAsync(Now.AddDays(-30), 10, Token);
+
+        Assert.Equal(1, deleted);
+        Assert.Equal(["recent"], await MessageIds());
+    }
+
+    [Fact]
+    public async Task A_delete_stops_at_the_batch_size()
+    {
+        for (var i = 0; i < 5; i++)
+        {
+            await Insert($"msg-{i}", Now.AddDays(-31));
+        }
+
+        var first = await _retention.DeleteHandledAsync(Now, 3, Token);
+        var second = await _retention.DeleteHandledAsync(Now, 3, Token);
+
+        Assert.Equal((3, 2), (first, second));
+    }
+
+    [Fact]
+    public async Task A_row_another_transaction_holds_is_skipped_by_the_delete()
+    {
+        await Insert("held", Now.AddDays(-31));
+        await Insert("free", Now.AddDays(-31));
+        await using var connection = await DataSource.OpenConnectionAsync(Token);
+        await using var transaction = await connection.BeginTransactionAsync(Token);
+        await using var hold = connection.CreateCommand();
+        hold.Transaction = transaction;
+        hold.CommandText = $"UPDATE {_table.Name} SET handled_at = handled_at WHERE message_id = 'held'";
+        await hold.ExecuteNonQueryAsync(Token);
+
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(Token);
+        timeout.CancelAfter(TimeSpan.FromSeconds(5));
+        var deleted = await _retention.DeleteHandledAsync(Now, 10, timeout.Token);
+        await transaction.RollbackAsync(Token);
+
+        Assert.Equal(1, deleted);
+        Assert.Equal(["held"], await MessageIds());
+    }
+
+    private async Task Insert(string messageId, DateTimeOffset handledAt)
+    {
+        await using var insert = DataSource.CreateCommand(
+            $"INSERT INTO {_table.Name} (message_id, consumer, handled_at) VALUES (@message_id, @consumer, @handled_at)");
+        Parameter(insert, "@message_id", messageId);
+        Parameter(insert, "@consumer", Consumer);
+        Parameter(insert, "@handled_at", handledAt);
+        await insert.ExecuteNonQueryAsync(Token);
+    }
+
+    private async Task<List<string>> MessageIds()
+    {
+        await using var select = DataSource.CreateCommand($"SELECT message_id FROM {_table.Name} ORDER BY message_id");
+        await using var reader = await select.ExecuteReaderAsync(Token);
+        var ids = new List<string>();
+        while (await reader.ReadAsync(Token))
+        {
+            ids.Add(reader.GetString(0));
+        }
+
+        return ids;
+    }
+
+    private static void Parameter(DbCommand command, string name, object value)
+    {
+        var parameter = command.CreateParameter();
+        parameter.ParameterName = name;
+        parameter.Value = value;
+        command.Parameters.Add(parameter);
     }
 
     private async Task<bool> RecordAndCommit(string messageId, string consumer)
