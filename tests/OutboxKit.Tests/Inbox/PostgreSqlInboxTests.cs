@@ -10,6 +10,9 @@ public sealed class PostgreSqlInboxTests(PostgreSqlServer server) : InboxContrac
 
     protected override IInbox CreateInbox(InboxTable table, TimeProvider clock) => new PostgreSqlInbox(table, clock);
 
+    protected override IInboxRetentionStore CreateRetentionStore(InboxTable table) =>
+        new PostgreSqlInboxRetentionStore(server.DataSource, table);
+
     protected override string CreateTableSql(string table) => $"""
         CREATE TABLE {table} (
             message_id varchar(256) NOT NULL,

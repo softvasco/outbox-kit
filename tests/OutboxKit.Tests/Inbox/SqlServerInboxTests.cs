@@ -10,6 +10,9 @@ public sealed class SqlServerInboxTests(SqlServer server) : InboxContract, IClas
 
     protected override IInbox CreateInbox(InboxTable table, TimeProvider clock) => new SqlServerInbox(table, clock);
 
+    protected override IInboxRetentionStore CreateRetentionStore(InboxTable table) =>
+        new SqlServerInboxRetentionStore(server.DataSource, table);
+
     protected override string CreateTableSql(string table) => $"""
         CREATE TABLE {table} (
             message_id nvarchar(256) NOT NULL,
