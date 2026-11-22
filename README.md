@@ -5,7 +5,7 @@
 
 Transactional outbox and inbox for .NET. A message is saved in the same database transaction as the data that caused it, a relay delivers it at least once, and the consumer side makes sure it is handled once.
 
-Early days: messages can be saved with the caller's transaction (ADO.NET or EF Core), and a hosted dispatcher claims them from PostgreSQL or SQL Server and sends them through a transport you plug in. Failed sends are retried with backoff, messages for one ordering key go out in order, and the inbox comes next, so nothing ships ready to publish yet.
+Early days: messages can be saved with the caller's transaction (ADO.NET or EF Core), and a hosted dispatcher claims them from PostgreSQL or SQL Server and sends them through a transport you plug in. Failed sends are retried with backoff, messages for one ordering key go out in order, and a consumer can record what it handled in an inbox table. No NuGet package yet.
 
 ## Why
 
@@ -151,6 +151,47 @@ builder.Services.AddServiceBusTransport(o => o.EntityName = "orders");
 
 The outbox id goes out as `MessageId` and the registered type as `Subject`, so subscriptions can filter on it. Turn on duplicate detection on the queue or topic and the broker drops a message the relay sent twice inside the detection window, such as the resend after a send that timed out but had reached the broker. The consumer still needs the inbox for anything older than the window. The ordering key travels as an `outbox-ordering-key` application property. Set `OrderingKeyAsSessionId` and it's also the `SessionId`, which a session-enabled entity needs to hand one key's messages to one consumer in order; keys longer than the 128 characters a session id allows fail the send. The client retries on its own, so `SendTimeout` (10 seconds by default) caps the whole send, retries included, to keep it inside the claim.
 
+## Handling a message once
+
+The relay delivers at least once, so a consumer can get the same message twice. The inbox records each message id per consumer in the same transaction as the handler's writes:
+
+```csharp
+var inbox = new SqlServerInbox(new InboxTable(), TimeProvider.System);   // or PostgreSqlInbox
+
+await using var connection = await dataSource.OpenConnectionAsync(ct);
+await using var transaction = await connection.BeginTransactionAsync(ct);
+
+var handled = await inbox.HandleOnceAsync(message.MessageId, "billing", transaction, async (tx, ct) =>
+{
+    // the handler's own writes, on tx
+}, ct);
+
+await transaction.CommitAsync(ct);
+// ack the message either way: false means this consumer already handled it
+```
+
+The id is recorded before the handler runs. A second delivery arriving at the same time waits on that row until the first transaction ends, then skips the handler if it committed or runs it if it rolled back. A handler that throws rolls back its work and the record together, so the redelivery does the work. Each consumer name keeps its own record, so two services can share one table.
+
+The table:
+
+```sql
+-- SQL Server
+CREATE TABLE inbox_messages (
+    message_id nvarchar(256) NOT NULL,
+    consumer nvarchar(256) NOT NULL,
+    handled_at datetimeoffset NOT NULL,
+    PRIMARY KEY (message_id, consumer));
+
+-- PostgreSQL
+CREATE TABLE inbox_messages (
+    message_id varchar(256) NOT NULL,
+    consumer varchar(256) NOT NULL,
+    handled_at timestamptz NOT NULL,
+    PRIMARY KEY (message_id, consumer));
+```
+
+On PostgreSQL a duplicate key fails the whole transaction, so the insert uses `ON CONFLICT DO NOTHING` instead of catching the error. On SQL Server the existence check runs `WITH (UPDLOCK, HOLDLOCK)`, because under read committed snapshot a plain check doesn't see the first delivery's uncommitted row, and the second insert would then fail on the primary key instead of returning false.
+
 ## Testing without a broker
 
 `InMemoryTransport` keeps what the dispatcher sends in a channel, in send order, so a test can enqueue in a real transaction, run the dispatcher and read the messages back:
@@ -173,7 +214,7 @@ It never fails a send, so a test for retries or dead letters still needs a trans
 - Retries with backoff, and a dead-letter state.
 - Ordering per key.
 - Transports behind one port: in-memory for tests, RabbitMQ and Azure Service Bus are in, Kafka is next.
-- An inbox keyed by message id and consumer name.
+- An inbox keyed by message id and consumer name; cleanup of old inbox rows is next.
 - The same contract tests run against both databases with Testcontainers.
 
 ## Building
