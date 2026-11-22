@@ -4,9 +4,13 @@ using OutboxKit.Inbox;
 
 namespace OutboxKit.Tests.Inbox;
 
-public class InboxExtensionsTests
+public sealed class InboxExtensionsTests : IAsyncDisposable
 {
+    private readonly SqliteConnection _connection = new("Data Source=:memory:");
+
     private static CancellationToken Token => TestContext.Current.CancellationToken;
+
+    public ValueTask DisposeAsync() => _connection.DisposeAsync();
 
     [Fact]
     public async Task A_new_message_runs_the_handler_after_it_is_recorded()
@@ -55,11 +59,10 @@ public class InboxExtensionsTests
         Assert.Same(transaction, seen);
     }
 
-    private static async Task<DbTransaction> Transaction()
+    private async Task<DbTransaction> Transaction()
     {
-        var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(Token);
-        return await connection.BeginTransactionAsync(Token);
+        await _connection.OpenAsync(Token);
+        return await _connection.BeginTransactionAsync(Token);
     }
 
     private sealed class FakeInbox(bool alreadyHandled, List<string> calls) : IInbox
