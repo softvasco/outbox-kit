@@ -29,40 +29,14 @@ public sealed partial class OutboxRetentionService : BackgroundService
         _logger = logger;
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        try
-        {
-            while (!stoppingToken.IsCancellationRequested)
-            {
-                await CleanUpAsync(stoppingToken);
-                await Task.Delay(_options.Interval, _timeProvider, stoppingToken);
-            }
-        }
-        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-        {
-            // host shutdown
-        }
-    }
-
-    private async Task CleanUpAsync(CancellationToken stoppingToken)
-    {
-        try
-        {
-            var cutoff = _timeProvider.GetUtcNow() - _options.RetainFor;
-            int deleted;
-            do
-            {
-                deleted = await _store.DeleteDispatchedAsync(cutoff, _options.BatchSize, stoppingToken);
-            }
-            while (deleted == _options.BatchSize);
-        }
-        catch (Exception exception) when (exception is not OperationCanceledException || !stoppingToken.IsCancellationRequested)
-        {
-            // a failed cleanup costs nothing but disk until the next one
-            LogCleanupFailed(exception);
-        }
-    }
+    protected override Task ExecuteAsync(CancellationToken stoppingToken) => RetentionLoop.RunAsync(
+        _store.DeleteDispatchedAsync,
+        _options.RetainFor,
+        _options.Interval,
+        _options.BatchSize,
+        _timeProvider,
+        LogCleanupFailed,
+        stoppingToken);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Outbox cleanup failed; it runs again after the interval.")]
     private partial void LogCleanupFailed(Exception exception);
