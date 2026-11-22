@@ -111,6 +111,15 @@ builder.Services.AddOutboxRetention(o =>
 
 It deletes one batch at a time and skips rows another transaction holds, so it doesn't block the relays. Pending and dead-lettered messages are never touched.
 
+The inbox grows the same way, and `AddInboxRetention` cleans it:
+
+```csharp
+builder.Services.AddSingleton<IInboxRetentionStore>(new SqlServerInboxRetentionStore(dataSource, new InboxTable()));
+builder.Services.AddInboxRetention(o => o.RetainFor = TimeSpan.FromDays(14));
+```
+
+Once a row is gone, a copy of that message arriving later is handled again. So `RetainFor` has to be longer than any message can still turn up after its first delivery: the outbox's retries (minutes with the defaults), a dead-lettered message someone requeues days later, or a broker redelivering after a long outage. The default is 14 days. An index on `handled_at` keeps the delete from scanning the table.
+
 ## Transports
 
 Each broker is its own package, so an app only restores the client it uses ([ADR 5](docs/adr/0005-one-package-per-transport.md)).
@@ -214,7 +223,7 @@ It never fails a send, so a test for retries or dead letters still needs a trans
 - Retries with backoff, and a dead-letter state.
 - Ordering per key.
 - Transports behind one port: in-memory for tests, RabbitMQ and Azure Service Bus are in, Kafka is next.
-- An inbox keyed by message id and consumer name; cleanup of old inbox rows is next.
+- An inbox keyed by message id and consumer name, with its own cleanup.
 - The same contract tests run against both databases with Testcontainers.
 
 ## Building
