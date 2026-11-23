@@ -201,6 +201,34 @@ CREATE TABLE inbox_messages (
 
 On PostgreSQL a duplicate key fails the whole transaction, so the insert uses `ON CONFLICT DO NOTHING` instead of catching the error. On SQL Server the existence check runs `WITH (UPDLOCK, HOLDLOCK)`, because under read committed snapshot a plain check doesn't see the first delivery's uncommitted row, and the second insert would then fail on the primary key instead of returning false.
 
+## Poison messages
+
+A message the handler can never handle comes back until the broker gives up on it. Rather than leave it in the broker's dead-letter queue, the consumer can park it in its own database and ack it, so the messages behind it get through:
+
+```csharp
+var parked = new SqlServerParkedMessages(dataSource, new ParkedMessageTable());   // or PostgreSqlParkedMessages
+
+// after the handler threw and the delivery count says this was the last try
+await using var transaction = await connection.BeginTransactionAsync(ct);
+await parked.ParkAsync(new ParkedMessage(message.MessageId, "billing", message.Subject, body, ex.Message, now), transaction, ct);
+await transaction.CommitAsync(ct);
+// then ack it
+```
+
+Once the handler is fixed, `ListAsync("billing", 50)` shows what's waiting and `ReplayAsync` runs the handler on one message, through the inbox and in the same transaction that removes it. To drop a message, `TakeAsync` it and commit. [ADR 6](docs/adr/0006-park-poison-messages-in-the-consumer-database.md) explains why this lives next to the inbox and not in the broker.
+
+```sql
+-- SQL Server (PostgreSQL: varchar, text and timestamptz)
+CREATE TABLE parked_messages (
+    message_id nvarchar(256) NOT NULL,
+    consumer nvarchar(256) NOT NULL,
+    type nvarchar(256) NOT NULL,
+    payload nvarchar(max) NOT NULL,
+    error nvarchar(max) NOT NULL,
+    parked_at datetimeoffset NOT NULL,
+    PRIMARY KEY (message_id, consumer));
+```
+
 ## Testing without a broker
 
 `InMemoryTransport` keeps what the dispatcher sends in a channel, in send order, so a test can enqueue in a real transaction, run the dispatcher and read the messages back:
@@ -223,7 +251,7 @@ It never fails a send, so a test for retries or dead letters still needs a trans
 - Retries with backoff, and a dead-letter state.
 - Ordering per key.
 - Transports behind one port: in-memory for tests, RabbitMQ and Azure Service Bus are in, Kafka is next.
-- An inbox keyed by message id and consumer name, with its own cleanup.
+- An inbox keyed by message id and consumer name, with its own cleanup, and a table to park poison messages and replay them.
 - The same contract tests run against both databases with Testcontainers.
 
 ## Building
