@@ -2,6 +2,37 @@
 
 The outbox delivers every message at least once. It never loses one that was committed, and it can send one more than once. This page lists when a duplicate happens and what a consumer has to do about it.
 
+## The whole path
+
+```mermaid
+sequenceDiagram
+    participant App as Producer
+    participant PDB as Producer database
+    participant Relay as Dispatcher
+    participant Broker
+    participant Consumer
+    participant CDB as Consumer database
+
+    App->>PDB: BEGIN, business change + outbox row
+    App->>PDB: COMMIT
+    Relay->>PDB: claim a batch (claimed_until)
+    Relay->>Broker: send, MessageId = outbox id
+    Broker-->>Relay: accepted
+    Relay->>PDB: set dispatched_at
+    Note over Relay,PDB: a crash before this update sends the message again
+    Broker->>Consumer: deliver
+    Consumer->>CDB: BEGIN, record id in the inbox
+    alt id was new
+        Consumer->>CDB: handler's writes, COMMIT
+    else already handled
+        Consumer->>CDB: COMMIT, handler skipped
+    end
+    Consumer-->>Broker: ack
+    Note over Consumer,Broker: a crash before the ack redelivers, and the inbox skips it
+```
+
+Each database only sees local transactions and nothing spans the broker. The first note is why a consumer can get a message twice; the second is why the inbox write and the handler share one transaction.
+
 ## Why a committed message can't be lost
 
 The message row is written in the same transaction as the business change ([ADR 1](adr/0001-transactional-outbox.md)). Once that commits, the row stays pending until one of two things happens:
@@ -36,7 +67,7 @@ Treat every message as possibly seen before.
 - Use the outbox id as the message id. `OutboxMessage.Id` is a UUID v7 fixed when the message is saved, and it's the same on every resend. A transport should put it in the broker's message id (`MessageId` on Service Bus and RabbitMQ, a header on Kafka), so the consumer and the broker's own duplicate detection both see it.
 - Record handled ids in the same transaction as the work. Check whether the id is already there before handling the message, and write it with your own changes in one transaction. If the handler crashes, neither the work nor the id is saved and the redelivery does the work. If it commits, the redelivery finds the id and is acked without doing anything. That's the inbox: `IInbox.TryRecordAsync`, or `HandleOnceAsync` around the handler (see the README).
 - Don't rely on the broker alone. Broker duplicate detection (Service Bus has it, Kafka's idempotent producer covers producer retries) only looks back over a window and only at the broker. It doesn't help with a resend that comes after the window, and it doesn't cover the consumer crashing after its own commit and before the ack.
-- Make the handler safe to repeat where it's cheap. Setting a status is naturally idempotent; adding to a balance isn't. Where a handler can be written as "set to" rather than "add", a duplicate does no harm even without the inbox.
+- Make the handler safe to repeat where it's cheap. Setting a status is naturally idempotent; adding to a balance isn't. Where a handler can be written as "set to" rather than "add", a duplicate does no harm even without the inbox. [ADR 7](adr/0007-inbox-or-natural-idempotency.md) says when the inbox can be left out.
 
 ## What isn't promised
 
