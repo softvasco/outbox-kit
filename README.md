@@ -181,6 +181,8 @@ await transaction.CommitAsync(ct);
 
 The id is recorded before the handler runs. A second delivery arriving at the same time waits on that row until the first transaction ends, then skips the handler if it committed or runs it if it rolled back. A handler that throws rolls back its work and the record together, so the redelivery does the work. Each consumer name keeps its own record, so two services can share one table.
 
+A handler that gives the same result the second time on its own, such as an upsert by business id or an update guarded by status, doesn't need the inbox. [ADR 7](docs/adr/0007-inbox-or-natural-idempotency.md) says when to use which.
+
 The table:
 
 ```sql
