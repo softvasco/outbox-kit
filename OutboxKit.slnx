@@ -9,6 +9,7 @@
     <Project Path="src/OutboxKit.EntityFrameworkCore/OutboxKit.EntityFrameworkCore.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/OutboxKit.CrashHost/OutboxKit.CrashHost.csproj" />
     <Project Path="tests/OutboxKit.Tests/OutboxKit.Tests.csproj" />
   </Folder>
 </Solution>
