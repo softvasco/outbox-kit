@@ -11,6 +11,8 @@ public sealed class PostgreSqlServer : IAsyncLifetime
 
     public NpgsqlDataSource DataSource { get; private set; } = null!;
 
+    public string ConnectionString => _container.GetConnectionString();
+
     public async ValueTask InitializeAsync()
     {
         await _container.StartAsync();
