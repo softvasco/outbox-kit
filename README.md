@@ -246,6 +246,17 @@ Assert.Equal("orders.placed", sent.Type);
 
 It never fails a send, so a test for retries or dead letters still needs a transport that throws.
 
+## Crash tests
+
+The claim that nothing is lost is tested by killing a real process. `tests/OutboxKit.CrashHost` is a small console app that the tests start against a PostgreSQL container and that dies with `Environment.FailFast` at one of two points, so no `finally` block, disposal or flush gets to run:
+
+| Killed | Left behind | What the next relay does |
+|---|---|---|
+| right after the commit, before any send | the order and its outbox row, both committed | sends it once |
+| after the broker got the message, before the row was marked | an unmarked row, already at the broker | sends it again with the same id, so the broker sees it twice |
+
+The second row is why the consumer needs the inbox. The tests are in `tests/OutboxKit.Tests/Crashes`.
+
 ## Plan
 
 - Core model and an `IOutbox` that enqueues inside the caller's transaction (ADO.NET and EF Core).
@@ -255,6 +266,7 @@ It never fails a send, so a test for retries or dead letters still needs a trans
 - Transports behind one port: in-memory for tests, RabbitMQ and Azure Service Bus are in, Kafka is next.
 - An inbox keyed by message id and consumer name, with its own cleanup, and a table to park poison messages and replay them.
 - The same contract tests run against both databases with Testcontainers.
+- Crash tests that kill a real process mid-dispatch.
 
 ## Building
 
