@@ -33,6 +33,16 @@ public sealed class ProcessCrashTests(PostgreSqlServer server) : IClassFixture<P
         await Execute($"DROP TABLE {OutboxTable}; DROP TABLE {OrdersTable}; DROP TABLE {BrokerTable};");
 
     [Fact]
+    public async Task A_process_killed_before_the_commit_leaves_neither_the_order_nor_the_message()
+    {
+        var crash = await RunCrashHost("before-commit");
+
+        Assert.Contains("before the commit", crash, StringComparison.Ordinal);
+        Assert.Equal(0L, await Scalar($"SELECT count(*) FROM {OrdersTable}"));
+        Assert.Equal(0L, await Scalar($"SELECT count(*) FROM {OutboxTable}"));
+    }
+
+    [Fact]
     public async Task A_process_killed_right_after_the_commit_leaves_the_message_for_the_next_relay()
     {
         var crash = await RunCrashHost("after-commit");
@@ -45,6 +55,21 @@ public sealed class ProcessCrashTests(PostgreSqlServer server) : IClassFixture<P
 
         Assert.Equal(["orders.placed"], await BrokerTypes());
         Assert.Equal(0L, await Scalar($"SELECT count(*) FROM {OutboxTable} WHERE dispatched_at IS NULL"));
+    }
+
+    [Fact]
+    public async Task A_process_killed_holding_a_claim_delays_the_message_but_sends_it_once()
+    {
+        await RunCrashHost("after-commit");
+
+        var crash = await RunCrashHost("after-claim");
+
+        Assert.Contains("after the claim", crash, StringComparison.Ordinal);
+        Assert.Equal(1L, await Scalar($"SELECT count(*) FROM {OutboxTable} WHERE claimed_until IS NOT NULL"));
+
+        await DispatchFromANewProcess();
+
+        Assert.Equal(["orders.placed"], await BrokerTypes());
     }
 
     [Fact]
