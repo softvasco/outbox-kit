@@ -42,7 +42,7 @@ public sealed class RabbitMqTransport : IMessageTransport, IAsyncDisposable, IDi
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            var channel = await OpenChannelAsync(timeout.Token);
+            var channel = await OpenChannelAsync(timeout.Token).WaitAsync(timeout.Token);
 
             // mandatory, so a message no queue is bound for comes back as a failed send instead of vanishing
             await channel.BasicPublishAsync(
@@ -51,7 +51,14 @@ public sealed class RabbitMqTransport : IMessageTransport, IAsyncDisposable, IDi
                 mandatory: true,
                 Properties(message),
                 Encoding.UTF8.GetBytes(message.Payload),
-                timeout.Token);
+                timeout.Token).AsTask().WaitAsync(timeout.Token);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            // a frozen broker can keep the client waiting past the token, and a confirm may still come
+            // for this publish later, so the channel can't be trusted for the next message
+            DropChannel();
+            throw new TimeoutException($"RabbitMQ didn't confirm message {message.Id} within {_options.ConfirmTimeout}.");
         }
         finally
         {
@@ -73,6 +80,33 @@ public sealed class RabbitMqTransport : IMessageTransport, IAsyncDisposable, IDi
     {
         _channel?.Dispose();
         _gate.Dispose();
+    }
+
+    private void DropChannel()
+    {
+        var channel = _channel;
+        _channel = null;
+        if (channel is null)
+        {
+            return;
+        }
+
+        // closing waits for the broker as well, so it happens in the background
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await channel.AbortAsync();
+            }
+            catch (Exception exception) when (exception is not OutOfMemoryException)
+            {
+                // the broker is the reason the channel is dropped, so it failing to close is expected
+            }
+            finally
+            {
+                channel.Dispose();
+            }
+        });
     }
 
     private async Task<IChannel> OpenChannelAsync(CancellationToken cancellationToken)
