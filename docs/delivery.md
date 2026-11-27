@@ -52,7 +52,7 @@ The dispatcher marks a message dispatched after the transport says the send work
 | --- | --- |
 | The process dies right after the send | The row is still pending and its claim runs out |
 | The `UPDATE` that marks it dispatched fails (database down, failover) | Same as above |
-| The send times out but the broker did get the message | The dispatcher counts a failure and retries after the backoff |
+| The send times out but the broker did get the message (a frozen broker that wakes up does this) | The dispatcher counts a failure and retries after the backoff |
 | The host shuts down while a send is in flight | A cancelled send isn't counted as a failure; the message waits for its claim to run out |
 | A send takes longer than `ClaimDuration` | Another relay can claim the message and send it while the first send is still going |
 

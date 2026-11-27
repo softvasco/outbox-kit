@@ -259,6 +259,10 @@ The claim that nothing is lost is tested by killing a real process. `tests/Outbo
 
 The last row is why the consumer needs the inbox. The tests are in `tests/OutboxKit.Tests/Crashes`.
 
+A second test freezes the broker instead of the relay. It saves 30 messages over three ordering keys, pauses the RabbitMQ container with `docker pause`, lets the relay fail against it for a while and then unpauses it. Every message has to arrive, none dead-lettered, and per key the first arrival of each message has to be in the order it was saved. A send that timed out can still reach the broker after the pause, so a repeat is allowed; an overtake isn't.
+
+Writing it found a bug: after the first publish timed out, the RabbitMQ client kept the next one waiting past its token, so the relay stopped retrying until the broker was back. A timed-out publish now drops its channel and the next send opens a fresh one.
+
 ## Plan
 
 - Core model and an `IOutbox` that enqueues inside the caller's transaction (ADO.NET and EF Core).
